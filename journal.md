@@ -1,0 +1,1 @@
+GRU first epoch - epoch   1/100  loss 0.6673  0.963 bits/token  lr 1.00e-03 window size - 512, hidden dim - 512 num layer 2
