@@ -1,0 +1,1 @@
+Thinking of generating 6 tokens at once instead of one by one but its blowing up the probability distribution gotta reduce the probability distribution 
