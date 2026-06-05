@@ -1,7 +1,13 @@
-from pym_lstm import PymLSTM
+INPUT_FILE = "enwik9"
+OUTPUT_FILE = "slice_100mb.txt"
 
-model = PymLSTM()
-total = sum(p.numel() for p in model.parameters())
-print(f"Total parameters: {total:,}")
-print(f"Model size: {total * 4 / 1024 / 1024:.2f} MB (float32)")
-print(f"Model size: {total / 1024 / 1024:.2f} MB (int8)")
+SIZE_MB = 100
+BYTES_TO_COPY = SIZE_MB * 1024 * 1024
+
+with open(INPUT_FILE, "rb") as src:
+    data = src.read(BYTES_TO_COPY)
+
+with open(OUTPUT_FILE, "wb") as dst:
+    dst.write(data)
+
+print(f"Saved first {SIZE_MB} MB to {OUTPUT_FILE}")

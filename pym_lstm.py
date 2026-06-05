@@ -3,7 +3,7 @@ import torch.nn as nn
 import math
 
 class PymLSTM(nn.Module):
-    def __init__(self, vocab_size=8192, hidden_dim=200, num_layers=2):
+    def __init__(self, vocab_size=8192, hidden_dim=512, num_layers=2):
         super().__init__()
         
         self.vocab_size = vocab_size

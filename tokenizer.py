@@ -1,25 +1,24 @@
-from tokenizers import Tokenizer
-from tokenizers.models import BPE
-from tokenizers.trainers import BpeTrainer
+import torch
+import torch.nn as nn
+from train import PymLSTM  # import your model class
+import os
+model_path = 'models/0.model.pt'  # path to your saved model
 
+model = PymLSTM(vocab_size=1024).cpu().float()
+model.load_state_dict(torch.load(model_path, map_location='cuda'), strict=False)
+model.eval()
 
-file_name =  'test.txt'
-
-tokenizer = Tokenizer(BPE(unk_token="[UNK]"))
-
-trainer = BpeTrainer(
-    vocab_size=8192,
-    min_frequency=1,
-    special_tokens=["[UNK]"]
+quantized = torch.quantization.quantize_dynamic(
+    model,
+    {nn.RNN, nn.Linear},
+    dtype=torch.qint8
 )
 
-tokenizer.train(files=[file_name], trainer=trainer)
+out_path = model_path.replace('.pt', '.q8.pt')
+torch.save(quantized.state_dict(), out_path)
 
-with open(file_name, 'rb') as f:
-    data = f.read()
-
-text = data.decode('utf-8')
-encoded = tokenizer.encode(text)
-print(f"Original chars: {len(text):,}")
-print(f"Encoded tokens: {len(encoded.ids):,}")
-print(f"Reduction ratio: {len(text) / len(encoded.ids):.2f}x")
+raw_mb = os.path.getsize(model_path) / 1024 / 1024
+q8_mb  = os.path.getsize(out_path)  / 1024 / 1024
+print(f"original:   {raw_mb:.1f} MB")
+print(f"quantized:  {q8_mb:.1f} MB")
+print(f"reduction:  {raw_mb/q8_mb:.2f}x")

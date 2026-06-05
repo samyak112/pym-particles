@@ -1,4 +1,6 @@
 *.txt
+*.npy
+*.json
 
 # Python-generated files
 __pycache__/
