@@ -1,24 +1,18 @@
-import torch
-import torch.nn as nn
-from train import PymLSTM  # import your model class
-import os
-model_path = 'models/0.model.pt'  # path to your saved model
+from pathlib import Path
+import numpy as np
 
-model = PymLSTM(vocab_size=1024).cpu().float()
-model.load_state_dict(torch.load(model_path, map_location='cuda'), strict=False)
-model.eval()
+def get_byte_ids(chunk_path: str | Path) -> np.ndarray:
+    chunk_path = Path(chunk_path)
+    cache_path = chunk_path.with_suffix(chunk_path.suffix + ".bytes.npy")
 
-quantized = torch.quantization.quantize_dynamic(
-    model,
-    {nn.RNN, nn.Linear},
-    dtype=torch.qint8
-)
+    if cache_path.exists():
+        print("loaded byte cache...")
+        return np.load(cache_path)
 
-out_path = model_path.replace('.pt', '.q8.pt')
-torch.save(quantized.state_dict(), out_path)
+    print("reading raw bytes...")
+    byte_ids = np.frombuffer(chunk_path.read_bytes(), dtype=np.uint8).copy()
 
-raw_mb = os.path.getsize(model_path) / 1024 / 1024
-q8_mb  = os.path.getsize(out_path)  / 1024 / 1024
-print(f"original:   {raw_mb:.1f} MB")
-print(f"quantized:  {q8_mb:.1f} MB")
-print(f"reduction:  {raw_mb/q8_mb:.2f}x")
+    np.save(cache_path, byte_ids)
+    print(f"loaded {len(byte_ids):,} bytes.")
+
+    return byte_ids
