@@ -394,6 +394,7 @@ dependencies = [
     { name = "numpy" },
     { name = "tokenizers" },
     { name = "torch" },
+    { name = "tqdm" },
 ]
 
 [package.metadata]
@@ -401,6 +402,7 @@ requires-dist = [
     { name = "numpy", specifier = ">=2.4.6" },
     { name = "tokenizers", specifier = ">=0.23.1" },
     { name = "torch", specifier = ">=2.3.1", index = "https://download.pytorch.org/whl/rocm6.0" },
+    { name = "tqdm", specifier = ">=4.67.3" },
 ]
 
 [[package]]

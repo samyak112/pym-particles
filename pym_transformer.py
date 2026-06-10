@@ -8,7 +8,7 @@ class PymTransformer(nn.Module):
         vocab_size,
         hidden_dim,
         num_layers,
-        sequence_length
+        sequence_length,
     ):
         super().__init__()
 
@@ -20,9 +20,11 @@ class PymTransformer(nn.Module):
             persistent=False
         )
 
+        bool_mask = torch.triu(torch.ones(sequence_length, sequence_length, dtype=torch.bool), diagonal=1)
+
         self.register_buffer(
             "causal_mask",
-            nn.Transformer.generate_square_subsequent_mask(sequence_length),
+            bool_mask,
             persistent=False
         )
 
@@ -49,8 +51,11 @@ class PymTransformer(nn.Module):
         pe[:, 1::2] = torch.cos(position * div_term)
         return pe
 
-    def forward(self, tokens):
+    def forward(self, tokens,pad_token_id=256):
         _, seq_len = tokens.shape
+
+        key_padding_mask = (tokens == pad_token_id)
+        
 
         x = self.embedding(tokens)
 
@@ -59,7 +64,7 @@ class PymTransformer(nn.Module):
         causal_mask = self.causal_mask[:seq_len, :seq_len]
 
         for layer in self.layers:
-            x = layer(x, causal_mask)
+            x = layer(x, causal_mask,key_padding_mask)
 
         x = self.final_ln(x)
 
@@ -87,7 +92,7 @@ class TransformerBlock(nn.Module):
             nn.Linear(hidden_dim * 4, hidden_dim)
         )
 
-    def forward(self, x, causal_mask):
+    def forward(self, x, causal_mask,key_padding_mask):
 
         attn_input = self.ln1(x)
 
@@ -96,7 +101,8 @@ class TransformerBlock(nn.Module):
             key=attn_input,
             value=attn_input,
             attn_mask=causal_mask,
-            need_weights=False
+            need_weights=False,
+            key_padding_mask=key_padding_mask
         )
 
         x = x + attn_out
