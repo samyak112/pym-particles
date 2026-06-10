@@ -5,12 +5,14 @@ from tokenizer import get_byte_ids
 from data_processing import generate_windows
 from pym_transformer import PymTransformer
 import time
+import json
 
 model_name = 'pym_particles.pt'
+log_path = "loss_log.json"
 
 
 
-def train(chunk_path, epochs=20, lr=1e-4, window_size=512,
+def train(chunk_path, epochs=20, lr=1e-4, window_size=256,
           vocab_size=258, batch_size=64):
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -50,9 +52,11 @@ def train(chunk_path, epochs=20, lr=1e-4, window_size=512,
 
             with torch.autocast(device_type='cuda', dtype=torch.float16):
 
+                t0 = time.perf_counter()
                 logits, _ = model(inp_b)
+                torch.cuda.synchronize()
+                print("forward", time.perf_counter() - t0)
 
-                assert logits.shape[1] == inp_b.shape[1]
                 # 1. Define the index of the token making the first prediction you care about.
                 # The token '4' is at index 3.
                 logit_start_idx = window_size//2 - 1
@@ -75,13 +79,19 @@ def train(chunk_path, epochs=20, lr=1e-4, window_size=512,
                 # print('this is the loss',loss)
                 # print('batch',batch_start/batch_size)
 
+            t0 = time.perf_counter()
             scaler.scale(loss).backward()
+            torch.cuda.synchronize()
+            print("backward", time.perf_counter() - t0)
 
             scaler.unscale_(optimizer)
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0, foreach=True)
 
+            t0 = time.perf_counter()
             scaler.step(optimizer)
             scaler.update()
+            torch.cuda.synchronize()
+            print("step", time.perf_counter() - t0)
 
 
             total_loss.add_(loss.detach())
@@ -93,17 +103,24 @@ def train(chunk_path, epochs=20, lr=1e-4, window_size=512,
         avg_loss = (total_loss / running_steps).item()
         bits_per_token = avg_loss / math.log(2)
         current_lr     = scheduler.get_last_lr()[0]
-        print(f"epoch {epoch + 1:3d}/{epochs}"
-              f"  loss {avg_loss:.4f}"
-              f"  {bits_per_token:.3f} bits/token"
-              f"  lr {current_lr:.2e}")
         
         local_end_time = time.perf_counter()
         elapsed_time = local_end_time - local_start_time
-        
-        print(f"Total Execution Time: {elapsed_time:.4f} seconds")
+        log_entry = {
+            "epoch": epoch + 1,
+            "loss": avg_loss,
+            "bits_per_token": bits_per_token,
+            "lr": current_lr,
+            "time_sec": elapsed_time
+        }
 
+        print(log_entry)
+
+    
         if avg_loss < best_loss:
+            with open(log_path, "a") as f:
+                f.write(json.dumps(log_entry) + "\n")
+
             best_loss = avg_loss
 
             model_path = 'models/' + model_name
@@ -118,4 +135,4 @@ def train(chunk_path, epochs=20, lr=1e-4, window_size=512,
 
     return model
 
-train('slice_100mb.txt', epochs=100)
+train('test.txt', epochs=100)

@@ -4,6 +4,8 @@
 *.zip
 *.zst
 *.pt
+*.bin
+*.pym
 
 # Python-generated files
 __pycache__/

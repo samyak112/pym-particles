@@ -1,4 +1,5 @@
 import torch
+from tokenizer import get_byte_ids
 
 PAD = 256
 BOS = 257
@@ -47,6 +48,8 @@ def generate_windows(
 
         windows.append(window)
 
+    print(len(windows))
+
     return torch.stack(windows, dim=0)
 
 def generate_custom_mask(seq_len: int, dead_rows: int, device=None) -> torch.Tensor:
@@ -67,7 +70,7 @@ def find_redundant_chunks():
     print('test')
 
     with open("test.txt", "rb") as f:
-        while chunk := f.read(256):
+        while chunk := f.read(128):
             # process chunk
             if chunk in test:
                 test[chunk] += 1
@@ -84,21 +87,22 @@ def find_redundant_chunks():
 
 
 if __name__ == '__main__':
-    # custom_mask = generate_custom_mask(8, 8)
-    import torch
+    # # custom_mask = generate_custom_mask(8, 8)
+    # import torch
 
-    data = torch.load('corrupted_batch_item_11.pt') # Replace X with the actual number
+    # data = torch.load('corrupted_batch_item_11.pt') # Replace X with the actual number
 
-    inputs = data['input_ids']
-    print("--- RAW INPUT IDS ---")
-    print(inputs.tolist())
+    # inputs = data['input_ids']
+    # print("--- RAW INPUT IDS ---")
+    # print(inputs.tolist())
 
-    # Check for obvious input errors
-    if (inputs == 0).all():
-        print("\nWARNING: The entire input sequence is 0 (possible padding issue).")
+    # # Check for obvious input errors
+    # if (inputs == 0).all():
+    #     print("\nWARNING: The entire input sequence is 0 (possible padding issue).")
 
-    # token_ids = get_byte_ids(chunk_path='test.txt')
-    # windows = generate_windows(token_ids,512,"cpu")
+    # find_redundant_chunks()
+    token_ids = get_byte_ids(chunk_path='test.txt')
+    windows = generate_windows(token_ids,512,"cpu")
 
 
 
