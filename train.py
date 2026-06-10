@@ -52,10 +52,7 @@ def train(chunk_path, epochs=20, lr=1e-4, window_size=256,
 
             with torch.autocast(device_type='cuda', dtype=torch.float16):
 
-                t0 = time.perf_counter()
-                logits, _ = model(inp_b)
-                torch.cuda.synchronize()
-                print("forward", time.perf_counter() - t0)
+                logits, _, _ = model(inp_b)
 
                 # 1. Define the index of the token making the first prediction you care about.
                 # The token '4' is at index 3.
@@ -79,21 +76,14 @@ def train(chunk_path, epochs=20, lr=1e-4, window_size=256,
                 # print('this is the loss',loss)
                 # print('batch',batch_start/batch_size)
 
-            t0 = time.perf_counter()
             scaler.scale(loss).backward()
-            torch.cuda.synchronize()
-            print("backward", time.perf_counter() - t0)
 
             scaler.unscale_(optimizer)
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0, foreach=True)
 
-            t0 = time.perf_counter()
             scaler.step(optimizer)
             scaler.update()
-            torch.cuda.synchronize()
-            print("step", time.perf_counter() - t0)
-
-
+            
             total_loss.add_(loss.detach())
             running_steps += 1
 

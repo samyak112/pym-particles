@@ -6,6 +6,7 @@
 *.pt
 *.bin
 *.pym
+*.psb
 
 # Python-generated files
 __pycache__/
@@ -18,4 +19,3 @@ wheels/
 # Virtual environments
 .venv
 .env
-*.pt

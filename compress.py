@@ -118,9 +118,9 @@ def load_model(model_path, vocab_size=258, hidden_dim=256, num_layers=2, sequenc
         num_layers=num_layers,
         sequence_length=sequence_length
     ).to(DEVICE)
-    old_state_dict = torch.load(model_path, map_location=DEVICE)
-    new_state_dict = convert_mha_state_dict(old_state_dict)
-    model.load_state_dict(new_state_dict)
+    # old_state_dict = torch.load(model_path, map_location=DEVICE)
+    # new_state_dict = convert_mha_state_dict(old_state_dict)
+    model.load_state_dict(torch.load(model_path, map_location=DEVICE))
     model.eval()
     return model
 
@@ -372,14 +372,14 @@ if __name__ == '__main__':
     custom_seeds = load_custom_seeds(SEED_FILE, NUM_CHUNKS, SEED_LEN)
 
     # ── compress ──
-    # compress(model, byte_ids.copy(), custom_seeds, COMPRESSED_FILE, VOCAB_SIZE)
+    compress(model, byte_ids.copy(), custom_seeds, COMPRESSED_FILE, VOCAB_SIZE)
 
-    # compressed_mb = os.path.getsize(COMPRESSED_FILE) / 1024 / 1024
-    # bits_per_byte = compressed_mb * 8 / (original_mb if original_mb > 0 else 1)
-    # print(f"original     : {original_mb:.3f} MB")
-    # print(f"compressed   : {compressed_mb:.3f} MB")
-    # print(f"ratio        : {original_mb / compressed_mb:.2f}x")
-    # print(f"bits/byte    : {bits_per_byte:.3f}")
+    compressed_mb = os.path.getsize(COMPRESSED_FILE) / 1024 / 1024
+    bits_per_byte = compressed_mb * 8 / (original_mb if original_mb > 0 else 1)
+    print(f"original     : {original_mb:.3f} MB")
+    print(f"compressed   : {compressed_mb:.3f} MB")
+    print(f"ratio        : {original_mb / compressed_mb:.2f}x")
+    print(f"bits/byte    : {bits_per_byte:.3f}")
 
     # ── decompress ──
     decompress(model, COMPRESSED_FILE, custom_seeds, RECONSTRUCTED, VOCAB_SIZE)
