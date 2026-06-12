@@ -12,7 +12,7 @@ log_path = "loss_log.json"
 
 
 
-def train(chunk_path, epochs=20, lr=1e-4, window_size=256,
+def train(chunk_path, epochs=20, lr=1e-3, window_size=256,
           vocab_size=258, batch_size=64):
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -25,10 +25,29 @@ def train(chunk_path, epochs=20, lr=1e-4, window_size=256,
     steps_per_epoch = math.ceil(num_windows / batch_size)
     total_steps = epochs * steps_per_epoch
 
-    model     = PymTransformer(vocab_size=vocab_size,hidden_dim=256,num_layers=2,sequence_length=window_size).to(device)
+    model     = PymTransformer(vocab_size=vocab_size,hidden_dim=128,num_layers=2,sequence_length=window_size).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr,fused=True)
     scaler = torch.cuda.amp.GradScaler()
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=total_steps, eta_min=lr * 0.1)
+    warmup_steps = 500
+
+    warmup_scheduler = torch.optim.lr_scheduler.LinearLR(
+        optimizer,
+        start_factor=1e-8,
+        end_factor=1.0,
+        total_iters=warmup_steps
+    )
+
+    cosine_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer,
+        T_max=total_steps - warmup_steps,
+        eta_min=lr * 0.1
+    )
+
+    scheduler = torch.optim.lr_scheduler.SequentialLR(
+        optimizer,
+        schedulers=[warmup_scheduler, cosine_scheduler],
+        milestones=[warmup_steps]
+    )
     criterion = nn.CrossEntropyLoss()
 
     best_loss = float('inf')
@@ -73,7 +92,6 @@ def train(chunk_path, epochs=20, lr=1e-4, window_size=256,
 
                 # 4. Compute loss
                 loss = criterion(logits_trimmed, targets_trimmed)
-                # print('this is the loss',loss)
                 # print('batch',batch_start/batch_size)
 
             scaler.scale(loss).backward()
@@ -125,4 +143,4 @@ def train(chunk_path, epochs=20, lr=1e-4, window_size=256,
 
     return model
 
-train('test.txt', epochs=100)
+train('slice_100mb.txt', epochs=100)
