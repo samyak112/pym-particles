@@ -1,5 +1,7 @@
 import torch
 from tokenizer import get_byte_ids
+import struct
+import bisect
 
 PAD = 256
 BOS = 257
@@ -52,17 +54,99 @@ def generate_windows(
 
     return torch.stack(windows, dim=0)
 
-def generate_custom_mask(seq_len: int, dead_rows: int, device=None) -> torch.Tensor:
-    # Start clean: False means "do not mask" (allow attention)
-    mask = torch.zeros((seq_len, seq_len), device=device, dtype=torch.bool)
+def make_bitmap(file_path, min_absent=170):
+    with open(file_path, 'rb') as f:
+        data = f.read()
     
-    # Causal block: In-place setting of the upper triangle to True
-    mask.triu_(diagonal=1)
+    tokens = list(data)
+    N = len(tokens)
     
-    # Dead rows block: Set the entire row to True (mask it completely)
-    mask[:dead_rows, :] = True
+    runs = []
+    start = 0
+    ever_seen = set()
     
-    return mask
+    for i in range(N):
+        ever_seen.add(tokens[i])
+        absent = 256 - len(ever_seen)
+
+        if absent < min_absent:
+            if i > start:
+                # snapshot absent set BEFORE this token corrupted it
+                # ever_seen currently includes tokens[i], so remove it for the closed run
+                closed_seen = ever_seen - {tokens[i]}
+                absent_set = set(range(256)) - closed_seen
+                runs.append((start, i - 1, absent_set))
+            start = i
+            ever_seen = {tokens[i]}
+    
+    if start < N:
+        absent_set = set(range(256)) - ever_seen
+        runs.append((start, N - 1, absent_set))
+
+    # write binary
+    out_path = file_path + '.bitmap'
+    with open(out_path, 'wb') as f:
+        # header: total runs as 4 byte int
+        f.write(struct.pack('>I', len(runs)))
+        for s, e, absent_set in runs:
+            # start and end as 4 byte ints
+            f.write(struct.pack('>II', s, e))
+            # 256 bit bitmap as 32 bytes
+            bitmask = 0
+            for b in absent_set:
+                bitmask |= (1 << b)
+            f.write(bitmask.to_bytes(32, byteorder='big'))
+
+    run_lengths = [e - s + 1 for s, e, _ in runs]
+    size_kb = (len(runs) * 40) / 1024
+    print(f"File          : {file_path}")
+    print(f"Total tokens  : {N:,}")
+    print(f"Total runs    : {len(runs):,}")
+    print(f"Avg run length: {sum(run_lengths) / len(run_lengths):.1f}")
+    print(f"Min run length: {min(run_lengths)}")
+    print(f"Max run length: {max(run_lengths)}")
+    print(f"Bitmap size   : {size_kb:.2f} KB")
+    print(f"Saved → {out_path}")
+
+    return runs
+
+
+def load_bitmap(bitmap_path):
+    runs = {}
+    with open(bitmap_path, 'rb') as f:
+        num_runs = struct.unpack('>I', f.read(4))[0]
+        for _ in range(num_runs):
+            start, end = struct.unpack('>II', f.read(8))
+            bitmask = int.from_bytes(f.read(32), byteorder='big')
+            bits = [(bitmask >> i) & 1 for i in range(256)]
+            mask_tensor = torch.tensor(bits, dtype=torch.bool)
+            runs[end] = (start, mask_tensor)
+    return runs
+
+
+def find_run(bitmap_runs, ends, global_pos):
+    idx = bisect.bisect_left(ends, global_pos)
+    if idx >= len(ends):
+        return None
+    end = ends[idx]
+    start, mask = bitmap_runs[end]
+    if start <= global_pos <= end:
+        return mask
+    return None
+
+def build_ends_index(bitmap_runs):
+    # bitmap_runs: {end: (start, mask_tensor)}
+    ends = sorted(bitmap_runs.keys())
+    return ends  # sorted list for bisect
+
+def build_runs_list(bitmap_runs, ends):
+    return [(bitmap_runs[e][0], e, bitmap_runs[e][1]) for e in ends]
+
+def get_byte_at(file_path, index):
+    with open(file_path, 'rb') as f:
+        f.seek(index)
+        return f.read(1)[0]
+
 
 def find_redundant_chunks():
     test = {}
@@ -101,8 +185,11 @@ if __name__ == '__main__':
     #     print("\nWARNING: The entire input sequence is 0 (possible padding issue).")
 
     # find_redundant_chunks()
-    token_ids = get_byte_ids(chunk_path='test.txt')
-    windows = generate_windows(token_ids,512,"cpu")
+    # token_ids = get_byte_ids(chunk_path='test.txt')
+    # windows = generate_windows(token_ids,512,"cpu")
+    # make_bitmap('slice_100mb.txt')
+    test = get_byte_at('slice_100mb.txt',307)
+    print(test)
 
 
 
