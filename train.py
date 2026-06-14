@@ -13,14 +13,27 @@ log_path = "loss_log.json"
 
 
 def train(chunk_path, epochs=20, lr=1e-3, window_size=256,
-          vocab_size=258, batch_size=64):
+          vocab_size=258, batch_size=64,windows_path=None):
+    
+    with open(log_path, "a") as f:
+        f.write(json.dumps({'file_name':chunk_path}) + "\n")
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"device       : {device}")
 
-    token_ids = get_byte_ids(chunk_path=chunk_path)
-    windows = generate_windows(token_ids, window_size,device=device)
-    num_windows = len(windows)
+    # token_ids = get_byte_ids(chunk_path=chunk_path)
+    # windows = generate_windows(token_ids, window_size,device=device)
+    # num_windows = len(windows)
+
+    if windows_path is not None:
+        print(f"loading pre-built windows from {windows_path}...")
+        windows = torch.load(windows_path, map_location=device).long()  # ← cast back to int64
+        num_windows = len(windows)
+        print(f"loaded {num_windows} windows")
+    else:
+        token_ids = get_byte_ids(chunk_path=chunk_path)
+        windows = generate_windows(token_ids, window_size, device=device)
+        num_windows = len(windows)
 
     steps_per_epoch = math.ceil(num_windows / batch_size)
     total_steps = epochs * steps_per_epoch
@@ -54,6 +67,8 @@ def train(chunk_path, epochs=20, lr=1e-3, window_size=256,
 
 
     print('starting training')
+    perm = torch.arange(num_windows, device=device)
+    shuffled_windows = windows[perm]
 
     for epoch in range(epochs):
         local_start_time = time.perf_counter()
@@ -61,9 +76,6 @@ def train(chunk_path, epochs=20, lr=1e-3, window_size=256,
         model.train()
         total_loss = torch.tensor(0.0, device=device)
         running_steps = 0
-
-        perm = torch.randperm(num_windows, device=device)
-        shuffled_windows = windows[perm] # Do the heavy random read ONCE
 
         for batch_start in range(0, num_windows, batch_size):
             inp_b = shuffled_windows[batch_start : batch_start + batch_size]

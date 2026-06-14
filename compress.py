@@ -21,6 +21,13 @@ NUM_CHUNKS = 100              # N parallel streams for batched autoregression
 
 # ── seed generation ────────────────────────────────────────────────────────────
 
+def apply_bitmap(f, bitmask):
+    for b in range(256):
+        if (bitmask >> b) & 1:
+            f[b] = 0
+    return f
+
+
 def make_seed():
     """Fixed static seed generated dynamically in RAM: [257, 256, 256 ... 256, 257]"""
     seed = [TOK_B] * SEED_LEN
@@ -111,7 +118,7 @@ def convert_mha_state_dict(state_dict):
     return new_state_dict
 
 
-def load_model(model_path, vocab_size=258, hidden_dim=256, num_layers=2, sequence_length=256):
+def load_model(model_path, vocab_size=258, hidden_dim=128, num_layers=2, sequence_length=256):
     model = PymTransformer(
         vocab_size=vocab_size,
         hidden_dim=hidden_dim,
@@ -124,14 +131,34 @@ def load_model(model_path, vocab_size=258, hidden_dim=256, num_layers=2, sequenc
     model.eval()
     return model
 
+def load_bitmap(bitmap_path):
+    runs = []
+    with open(bitmap_path, 'rb') as f:
+        num_runs = struct.unpack('>I', f.read(4))[0]
+        for _ in range(num_runs):
+            start, end = struct.unpack('>II', f.read(8))
+            bitmask = int.from_bytes(f.read(32), byteorder='big')
+            runs.append((start, end, bitmask))
+    return runs
+
+def get_bitmask_for_pos(bitmap_runs, token_pos):
+    """Binary search for which run this token_pos falls in."""
+    lo, hi = 0, len(bitmap_runs) - 1
+    while lo <= hi:
+        mid = (lo + hi) // 2
+        start, end, bitmask = bitmap_runs[mid]
+        if token_pos < start:
+            hi = mid - 1
+        elif token_pos > end:
+            lo = mid + 1
+        else:
+            return bitmask
+    return None
+
 
 # ── probability helper ─────────────────────────────────────────────────────────
 
-def step_model_batched(model, tokens_batch, past_kv=None, past_padding=None):
-    """
-    tokens_batch: List of N sequences. Shape (N, SeqLen).
-    Returns N frequency tables.
-    """
+def step_model_batched(model, tokens_batch, bitmap_runs=None, global_positions=None, past_kv=None, past_padding=None):
     inp = torch.tensor(tokens_batch, dtype=torch.long).to(DEVICE)
     with torch.no_grad():
         logits, next_kv, next_padding = model(
@@ -139,20 +166,35 @@ def step_model_batched(model, tokens_batch, past_kv=None, past_padding=None):
             past_key_values=past_kv,
             past_key_padding_mask=past_padding
         )
+        
+
+    if bitmap_runs is not None and global_positions is not None:
+        for b in range(logits.shape[0]):
+            bitmask = get_bitmask_for_pos(bitmap_runs, global_positions[b])
+            
+            if bitmask is not None:
+                forbidden = [tok for tok in range(256) if (bitmask >> tok) & 1]
+                logits[b, -1, forbidden] = float('-inf')
+
+    with torch.no_grad():
         probs = F.softmax(logits[:, -1, :], dim=-1).float()
 
     probs_np = probs.cpu().numpy() * SCALE
+    
     freqs_batch = []
     for b in range(probs_np.shape[0]):
-        f = probs_np[b].astype(int).clip(1)
+        f = probs_np[b] * SCALE
+        print(f"chunk {b}, global_post:{global_positions}")  # add this
+        f = f.astype(int)
+        f = np.where(f > 0, np.maximum(f, 1), 0)
         freqs_batch.append(SimpleFrequencyTable(f.tolist()))
 
     return freqs_batch, next_kv, next_padding
 
-
 # ── compress ───────────────────────────────────────────────────────────────────
 
-def compress(model, byte_ids, custom_seeds, output_path, vocab_size=258):
+def compress(model, byte_ids, custom_seeds, output_path, vocab_size=258, bitmap_runs=None):
+
     num_bytes = len(byte_ids)
     
     # Calculate uniform chunk size and pad the input so it perfectly divides by N
@@ -193,16 +235,26 @@ def compress(model, byte_ids, custom_seeds, output_path, vocab_size=258):
 
         for pos in range(block_start, block_end):
             true_bytes = []
+            global_positions = []
             for i in range(NUM_CHUNKS):
                 global_pos = (i * chunk_size) + pos
                 true_byte = byte_ids[global_pos]
                 true_bytes.append([true_byte])
-                
-                encoders[i].write(freqs_batch[i], true_byte)
+                global_positions.append(global_pos)
 
-            # Step forward to advance the cache for all N chunks
+                try:
+                    encoders[i].write(freqs_batch[i], true_byte)
+                except Exception:
+                    print(f"chunk {i}, pos {pos}, global_pos {global_pos}, true_byte {true_byte}")
+                    import sys
+                    sys.exit()
+
             freqs_batch, past_kv, past_padding = step_model_batched(
-                model, true_bytes, past_kv=past_kv, past_padding=past_padding
+                model, true_bytes,
+                bitmap_runs=bitmap_runs,
+                global_positions=global_positions,
+                past_kv=past_kv,
+                past_padding=past_padding
             )
 
     # ── Finalize Streams (Flush Race-Condition Fix) ──
@@ -238,7 +290,8 @@ def compress(model, byte_ids, custom_seeds, output_path, vocab_size=258):
 
 # ── decompress ─────────────────────────────────────────────────────────────────
 
-def decompress(model, compressed_path, custom_seeds, output_path, vocab_size=258):
+def decompress(model, compressed_path, custom_seeds, output_path, vocab_size=258, bitmap_runs=None):
+
     print(f"reading      : {compressed_path}")
     
     with open(compressed_path, 'rb') as f:
@@ -281,7 +334,14 @@ def decompress(model, compressed_path, custom_seeds, output_path, vocab_size=258
                 context_batch.append(context_chunk)
 
         # ── Prefill Phase (Batched) ──
-        freqs_batch, past_kv, past_padding = step_model_batched(model, context_batch)
+        global_positions = [(i * chunk_size) + pos for i in range(num_chunks)]
+        freqs_batch, past_kv, past_padding = step_model_batched(
+            model, decoded_bytes,
+            bitmap_runs=bitmap_runs,
+            global_positions=global_positions,
+            past_kv=past_kv,
+            past_padding=past_padding
+        )
 
         # ── Decoding Phase (Batched) ──
         block_start = block_idx * BLOCK_SIZE
@@ -289,13 +349,19 @@ def decompress(model, compressed_path, custom_seeds, output_path, vocab_size=258
 
         for pos in range(block_start, block_end):
             decoded_bytes = []
+            global_positions = []
             for i in range(num_chunks):
                 byte_val = decoders[i].read(freqs_batch[i])
                 all_bytes[i].append(byte_val)
                 decoded_bytes.append([byte_val])
+                global_positions.append((i * chunk_size) + pos)
 
             freqs_batch, past_kv, past_padding = step_model_batched(
-                model, decoded_bytes, past_kv=past_kv, past_padding=past_padding
+                model, decoded_bytes,
+                bitmap_runs=bitmap_runs,
+                global_positions=global_positions,
+                past_kv=past_kv,
+                past_padding=past_padding
             )
 
     for bitin in bitins:
@@ -339,15 +405,18 @@ def verify(original_path, reconstructed_path, test_bytes):
 # ── entry point ────────────────────────────────────────────────────────────────
 
 if __name__ == '__main__':
-    INPUT_FILE      = 'test.txt'
-    COMPRESSED_FILE = 'test.pym'
-    RECONSTRUCTED   = 'test.reconstructed.txt'
+    INPUT_FILE      = 'slice_100mb.txt'
+    COMPRESSED_FILE = 'slice_100mb.pym'
+    RECONSTRUCTED   = 'slice_100mb.reconstructed.txt'
     SEED_FILE       = 'seeds.bin'
     MODEL_PATH      = 'models/pym_particles.pt'
     VOCAB_SIZE      = 258
 
+    bitmap_runs = load_bitmap(INPUT_FILE + '.bitmap')
+
+
     # Set up a target dataset size slice for validation
-    TEST_BYTES = 100 * 1024 * 1024
+    TEST_BYTES = 1 * 1024 * 1024
 
     print("loading model...")
     model = load_model(MODEL_PATH, vocab_size=VOCAB_SIZE)
@@ -372,7 +441,8 @@ if __name__ == '__main__':
     custom_seeds = load_custom_seeds(SEED_FILE, NUM_CHUNKS, SEED_LEN)
 
     # ── compress ──
-    compress(model, byte_ids.copy(), custom_seeds, COMPRESSED_FILE, VOCAB_SIZE)
+    compress(model, byte_ids.copy(), custom_seeds, COMPRESSED_FILE, VOCAB_SIZE, bitmap_runs=bitmap_runs)
+
 
     compressed_mb = os.path.getsize(COMPRESSED_FILE) / 1024 / 1024
     bits_per_byte = compressed_mb * 8 / (original_mb if original_mb > 0 else 1)
@@ -382,7 +452,8 @@ if __name__ == '__main__':
     print(f"bits/byte    : {bits_per_byte:.3f}")
 
     # ── decompress ──
-    decompress(model, COMPRESSED_FILE, custom_seeds, RECONSTRUCTED, VOCAB_SIZE)
+    decompress(model, COMPRESSED_FILE, custom_seeds, RECONSTRUCTED, VOCAB_SIZE, bitmap_runs=bitmap_runs)
+
 
     # ── verify ──
     verify(INPUT_FILE, RECONSTRUCTED, TEST_BYTES)
