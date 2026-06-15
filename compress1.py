@@ -403,7 +403,7 @@ if __name__ == '__main__':
     custom_seeds = load_custom_seeds(SEED_FILE, NUM_CHUNKS, SEED_LEN)
 
     # ── compress ──
-    # compress(model, byte_ids.copy(), custom_seeds, COMPRESSED_FILE, VOCAB_SIZE)
+    compress(model, byte_ids.copy(), custom_seeds, COMPRESSED_FILE, VOCAB_SIZE)
 
     # compressed_mb = os.path.getsize(COMPRESSED_FILE) / 1024 / 1024
     # bits_per_byte = compressed_mb * 8 / (original_mb if original_mb > 0 else 1)

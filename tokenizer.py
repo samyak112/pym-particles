@@ -19,4 +19,6 @@ def get_byte_ids(chunk_path: str | Path, size=None) -> np.ndarray:
         n_bytes = int(size * 1024 * 1024)
         byte_ids = byte_ids[:n_bytes]
 
+    print(len(set(byte_ids)))
+
     return byte_ids
