@@ -14,6 +14,9 @@ log_path = "loss_log.json"
 
 def train(chunk_path, epochs=20, lr=1e-3, window_size=256,
           vocab_size=258, batch_size=64):
+    
+    with open(log_path, "a") as f:
+        f.write(json.dumps({'file_name':chunk_path}) + "\n")
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"device       : {device}")
