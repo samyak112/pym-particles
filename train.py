@@ -12,7 +12,7 @@ log_path = "loss_log.json"
 
 
 
-def train(chunk_path, epochs=20, lr=1e-3, window_size=256,
+def train(chunk_path, epochs=20, lr=2e-3, window_size=256,
           vocab_size=258, batch_size=64):
     
     with open(log_path, "a") as f:
@@ -40,17 +40,14 @@ def train(chunk_path, epochs=20, lr=1e-3, window_size=256,
         total_iters=warmup_steps
     )
 
-    cosine_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-        optimizer,
-        T_max=total_steps - warmup_steps,
-        eta_min=lr * 0.1
-    )
+    constant_scheduler = torch.optim.lr_scheduler.ConstantLR(
+    optimizer, factor=1.0, total_iters=total_steps - warmup_steps
+)
 
     scheduler = torch.optim.lr_scheduler.SequentialLR(
-        optimizer,
-        schedulers=[warmup_scheduler, cosine_scheduler],
-        milestones=[warmup_steps]
-    )
+    optimizer, schedulers=[warmup_scheduler, constant_scheduler],
+    milestones=[warmup_steps]
+)
     criterion = nn.CrossEntropyLoss()
 
     best_loss = float('inf')
