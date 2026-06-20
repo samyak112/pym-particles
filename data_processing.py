@@ -71,6 +71,8 @@ def construct_secondary_dataset(
     vocab_size=258,
     batch_size=64,
 ):
+    import numpy as np
+
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     token_ids   = get_byte_ids(chunk_path=chunk_path)
@@ -93,36 +95,52 @@ def construct_secondary_dataset(
     model.eval()
 
     total_positions = num_windows * STRIDE + window_size
-    bitmap = bytearray(total_positions // 8 + 1)
+    bitmap    = bytearray(total_positions // 8 + 1)
+    bitmap_np = np.frombuffer(bitmap, dtype=np.uint8)   # writable view, shares memory with bitmap
+
+    seq_offsets = torch.arange(STRIDE, device=device)    # [128], reused every batch
 
     with torch.no_grad():
         for batch_start in tqdm(
             range(0, num_windows, batch_size),
             desc="Analyzing positions"
         ):
-            inp_b = windows[batch_start:batch_start + batch_size]
+            inp_b               = windows[batch_start:batch_start + batch_size]
+            current_batch_size  = inp_b.shape[0]
 
             with torch.autocast(device_type='cuda', dtype=torch.float16):
                 logits, _, _ = model(inp_b)
 
-            # logits for positions [127:-1], targets for positions [128:]
             logits_trimmed  = logits[:, target_start_idx - 1:-1, :].float()
             targets_trimmed = inp_b[:, target_start_idx:]
 
-            _, top2_indices = torch.topk(logits_trimmed, k=2, dim=-1)
+            true_logits = logits_trimmed.gather(-1, targets_trimmed.unsqueeze(-1)).squeeze(-1)
+            exact_rank  = (logits_trimmed > true_logits.unsqueeze(-1)).sum(dim=-1) + 1
 
-            rank2_correct_mask = (targets_trimmed == top2_indices[:, :, 1])
+            rank_3_to_20_mask = (exact_rank >= 3) & (exact_rank <= 20)   # [B, 128]
 
-            for row_idx, seq_pos in torch.nonzero(rank2_correct_mask, as_tuple=False):
-                global_window_idx = batch_start + row_idx.item()
+            # positions for every (window, seq_pos) in this batch — fully vectorized, no loop
+            global_window_idx = batch_start + torch.arange(current_batch_size, device=device)
+            batch_positions = (
+                global_window_idx.unsqueeze(1) * STRIDE
+                + target_start_idx
+                + seq_offsets.unsqueeze(0)
+            )  # [B, 128]
 
-                # window i covers tokens [i*128 : i*128+256]
-                # predictions cover     [i*128+128 : i*128+256]
-                pos = global_window_idx * STRIDE + target_start_idx + seq_pos.item()
+            flagged_positions = batch_positions[rank_3_to_20_mask]  # 1D, GPU boolean select
 
-                bitmap[pos >> 3] |= (1 << (pos & 7))
+            if flagged_positions.numel() == 0:
+                continue
 
-    bitmap_path = chunk_path + '.bitmap'
+            # one sync per batch, not one per match
+            pos_np   = flagged_positions.cpu().numpy()
+            byte_idx = pos_np >> 3
+            bit_off  = (pos_np & 7).astype(np.uint8)
+
+            # .at handles duplicate byte_idx correctly (multiple flagged bits in same byte)
+            np.bitwise_or.at(bitmap_np, byte_idx, np.uint8(1) << bit_off)
+
+    bitmap_path = chunk_path + '.rank3_20.bitmap'
     with open(bitmap_path, 'wb') as f:
         f.write(bitmap)
     print(f"bitmap saved → {bitmap_path}  ({len(bitmap)} bytes)")
@@ -178,8 +196,7 @@ def get_entropy_concentration_stats(chunk_path, model_path, window_size=256, voc
     rank1_pairs = torch.zeros((vocab_size, vocab_size), dtype=torch.long)
     rank2_pairs = torch.zeros((vocab_size, vocab_size), dtype=torch.long)
 
-    # NEW: when true byte lands at rank 2, what did the model put at rank 1?
-    # rows = true byte, cols = model's rank-1 prediction
+    # rows = true byte, cols = model's rank-1 prediction (when true byte was at rank 2)
     rank2_confusion = torch.zeros((vocab_size, vocab_size), dtype=torch.long)
 
     # Discretized non-overlapping band counters
@@ -188,6 +205,10 @@ def get_entropy_concentration_stats(chunk_path, model_path, window_size=256, voc
     count_ranks_3_15   = 0
     count_ranks_16_30  = 0
     count_ranks_31_100 = 0
+
+    # NEW: exact-rank concentration histogram (rank -> count / total bits)
+    rank_counts   = torch.zeros(vocab_size + 1, dtype=torch.long)    # index 0 unused, ranks 1..vocab_size
+    rank_bits_sum = torch.zeros(vocab_size + 1, dtype=torch.float64)
 
     with torch.no_grad():
         for batch_start in tqdm(range(0, num_windows, batch_size), desc="Analyzing positions"):
@@ -206,21 +227,18 @@ def get_entropy_concentration_stats(chunk_path, model_path, window_size=256, voc
             top100 = logits_trimmed.topk(100, dim=-1).indices
             tgt_exp = targets_trimmed.unsqueeze(-1)
 
-            # Fixed: Sliced into explicit non-overlapping target segments
             is_r1   = (tgt_exp == top100[..., :1]).any(dim=-1)       # Rank 1 (Index 0)
             is_r2   = (tgt_exp == top100[..., 1:2]).any(dim=-1)      # Rank 2 (Index 1)
             is_t15  = (tgt_exp == top100[..., 2:15]).any(dim=-1)     # Ranks 3-15 (Indices 2-14)
             is_t50  = (tgt_exp == top100[..., 15:30]).any(dim=-1)    # Ranks 16-30 (Indices 15-29)
             is_t100 = (tgt_exp == top100[..., 30:100]).any(dim=-1)   # Ranks 31-100 (Indices 30-99)
 
-            # Accumulate mutually exclusive bracket hits
             count_rank1        += int(is_r1.sum().item())
             count_rank2        += int(is_r2.sum().item())
             count_ranks_3_15   += int(is_t15.sum().item())
             count_ranks_16_30  += int(is_t50.sum().item())
             count_ranks_31_100 += int(is_t100.sum().item())
 
-            # Configured Top-K Hit/Miss behavior tracking
             topk_config = top100[..., :top_k]
             in_topk_config = (tgt_exp == topk_config).any(dim=-1)
             not_in_topk_config = ~in_topk_config
@@ -244,9 +262,22 @@ def get_entropy_concentration_stats(chunk_path, model_path, window_size=256, voc
                 global_rank2_counts += torch.bincount(tgt_f[r2_f], minlength=vocab_size)
                 rank2_pairs.index_put_((tgt_f[r2_f], prev_f[r2_f]), torch.tensor(1), accumulate=True)
 
-                # NEW: record what model predicted at rank 1 at these rank-2 positions
                 rank1_pred_flat = top100[..., 0].flatten().cpu()
                 rank2_confusion.index_put_((tgt_f[r2_f], rank1_pred_flat[r2_f]), torch.tensor(1), accumulate=True)
+
+            # NEW: exact rank + bit cost of the true byte, for every position
+            true_logits = logits_trimmed.gather(-1, targets_trimmed.unsqueeze(-1)).squeeze(-1)        # [B, pred_seq_len]
+            exact_rank  = (logits_trimmed > true_logits.unsqueeze(-1)).sum(dim=-1) + 1                 # [B, pred_seq_len], 1-indexed
+
+            probs      = torch.softmax(logits_trimmed, dim=-1)
+            true_probs = probs.gather(-1, targets_trimmed.unsqueeze(-1)).squeeze(-1).clamp(min=1e-12)
+            bits       = -torch.log2(true_probs)
+
+            rank_flat = exact_rank.flatten().cpu()
+            bits_flat = bits.flatten().cpu().double()
+
+            rank_counts.scatter_add_(0, rank_flat, torch.ones_like(rank_flat))
+            rank_bits_sum.scatter_add_(0, rank_flat, bits_flat)
 
             batch_duration = time.perf_counter() - batch_start_time
             tqdm.write(f"Batch {(batch_start // batch_size) + 1:04d} | Duration: {batch_duration:.4f}s")
@@ -294,6 +325,28 @@ def get_entropy_concentration_stats(chunk_path, model_path, window_size=256, voc
             row_str = ""
     print("=" * 60)
 
+    # NEW: rank concentration histogram — ranks 1-20 individually, then 21-100 bucketed
+    print("\n" + "=" * 60)
+    print("=== Rank Concentration: Correct-Answer Rank Histogram ===")
+    print(f"{'Rank':>8} | {'Count':>12} | {'Avg bits/byte':>14}")
+    print("-" * 42)
+
+    for r in range(1, 21):
+        c = rank_counts[r].item()
+        avg_bits = (rank_bits_sum[r].item() / c) if c > 0 else 0.0
+        print(f"{r:>8} | {c:>12,} | {avg_bits:>14.4f}")
+
+    bucket_count = rank_counts[21:101].sum().item()
+    bucket_bits  = rank_bits_sum[21:101].sum().item()
+    bucket_avg   = (bucket_bits / bucket_count) if bucket_count > 0 else 0.0
+    print(f"{'21-100':>8} | {bucket_count:>12,} | {bucket_avg:>14.4f}")
+
+    tail_count = rank_counts[101:].sum().item()
+    tail_bits  = rank_bits_sum[101:].sum().item()
+    tail_avg   = (tail_bits / tail_count) if tail_count > 0 else 0.0
+    print(f"{'101+':>8} | {tail_count:>12,} | {tail_avg:>14.4f}")
+    print("=" * 60)
+
     def format_char(b):
         if 32 <= b <= 126: return f"'{chr(b)}'"
         mapping = {10: r"'\n' (LF)", 13: r"'\r' (CR)", 9: r"'\t' (TAB)", 32: "' ' (SPACE)"}
@@ -319,7 +372,6 @@ def get_entropy_concentration_stats(chunk_path, model_path, window_size=256, voc
             print(f"{byte_idx:<6} | {format_char(byte_idx):<13} | {count:<14,} | {(count/total_hits_pool)*100:<12.2f}% | {(count/total_occ)*100:<16.2f}% | {format_char(top_prev_idx)} ({prev_pct:.1f}%)")
         print("=" * 60)
 
-    # NEW: print confusion table
     def print_confusion_table(title, counts, confusion_matrix):
         print(f"\n=== {title} ===")
         print(f"Total Rank-2 Instances: {int(counts.sum().item())}\n")

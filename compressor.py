@@ -7,12 +7,12 @@ from tqdm import tqdm
 import os
 
 INPUT_FILE      = 'slice_100mb.txt'
-COMPRESSED_FILE = 'slice_100mb_current177777772.pym'
+COMPRESSED_FILE = 'slice_100mb_current_latest.pym'
 RECONSTRUCTED   = 'slice_100mb.reconstructed.txt'
 SEED_FILE       = 'seeds.bin'
 MODEL1_PATH     = 'models/pym_particles_enwik_latest.pt'          # base model
-MODEL2_PATH     = 'models/pym_particles_rank2.pt'    # trained only on rank-2 positions
-BITMAP_PATH     = 'slice_100mb.txt.bitmap'           # rank-2 position map
+MODEL2_PATH     = 'models/pym_particles_non_rank1320_full_size.pt'    # trained only on rank-2 positions
+BITMAP_PATH     = 'slice_100mb.txt.rank3_20.bitmap'           # rank-2 position map
 VOCAB_SIZE      = 258
 WINDOW_SIZE = 256
 HIDDEN_DIMS = 128

@@ -7,25 +7,13 @@ from pym_transformer import PymTransformer
 import time
 import json
 
-model_name = 'pym_particles_rank2.pt'
-log_path = "loss_log.json"
-
-
-import math
-import torch
-import torch.nn as nn
-from tokenizer import get_byte_ids
-from data_processing import generate_windows
-from pym_transformer import PymTransformer
-import time
-import json
-
-model_name = 'pym_particles_non_rank1.pt'
+model_name = 'pym_particles_non_rank1320_full_size.pt'
 log_path   = "loss_log.json"
 
 
 def train(
     chunk_path,
+    bitmap      = None,
     epochs      = 20,
     lr          = 2e-3,
     window_size = 256,
@@ -33,7 +21,7 @@ def train(
     batch_size  = 64,
     hidden_dims = 128,
     num_layers  = 2,
-    size        = 100
+    size=100
 ):
     STRIDE           = window_size // 2
     target_start_idx = window_size // 2
@@ -45,6 +33,16 @@ def train(
     windows     = generate_windows(token_ids, window_size, device=device)
     num_windows = len(windows)
     print(f"windows : {num_windows}")
+
+    use_bitmap = bitmap is not None
+    if use_bitmap:
+        bitmap_tensor = torch.frombuffer(bytes(bitmap), dtype=torch.uint8).to(device)
+        seq_offsets   = torch.arange(STRIDE, device=device)
+        criterion     = nn.CrossEntropyLoss(reduction='none')
+        print("bitmap  : active")
+    else:
+        criterion = nn.CrossEntropyLoss()
+        print("bitmap  : none (training on all positions)")
 
     steps_per_epoch = math.ceil(num_windows / batch_size)
     total_steps     = epochs * steps_per_epoch
@@ -72,7 +70,6 @@ def train(
         milestones=[warmup_steps]
     )
 
-    criterion = nn.CrossEntropyLoss(reduction='none')
     best_loss = float('inf')
 
     with open(log_path, "a") as f:
@@ -80,8 +77,7 @@ def train(
             'file_name'  : chunk_path,
             'hidden_dims': hidden_dims,
             'num_layers' : num_layers,
-            'mode'       : 'rank1_miss_only',
-            'size'       : size
+            'bitmap'     : use_bitmap,
         }) + "\n")
 
     print('starting training')
@@ -93,12 +89,29 @@ def train(
 
         model.train()
 
-        perm             = torch.randperm(num_windows, device=device)
-        windows_to_train = windows[perm]
+        perm             = None if use_bitmap else torch.randperm(num_windows, device=device)
+        windows_to_train = windows if use_bitmap else windows[perm]
 
         for batch_start in range(0, num_windows, batch_size):
             inp_b              = windows_to_train[batch_start:batch_start + batch_size]
             current_batch_size = inp_b.shape[0]
+
+            logits_trimmed  = None
+            targets_trimmed = None
+
+            if use_bitmap:
+                global_window_idx = batch_start + torch.arange(current_batch_size, device=device)
+                positions = (
+                    global_window_idx.unsqueeze(1) * STRIDE
+                    + target_start_idx
+                    + seq_offsets.unsqueeze(0)
+                )  # [B, 128]
+
+                mask = ((bitmap_tensor[positions >> 3] >> (positions & 7)) & 1).bool()  # [B, 128]
+
+                if not mask.any():
+                    scheduler.step()
+                    continue
 
             optimizer.zero_grad(set_to_none=True)
 
@@ -108,20 +121,17 @@ def train(
                 logits_trimmed  = logits[:, target_start_idx - 1:-1, :]  # [B, 128, vocab]
                 targets_trimmed = inp_b[:, target_start_idx:]             # [B, 128]
 
-                # mask: positions where the model's top-1 prediction is WRONG
-                top1_preds = logits_trimmed.argmax(dim=-1)                # [B, 128]
-                mask = (top1_preds != targets_trimmed)                    # [B, 128]
-
-                if not mask.any():
-                    scheduler.step()
-                    continue
-
-                loss_per_token = criterion(
-                    logits_trimmed.reshape(-1, vocab_size),
-                    targets_trimmed.reshape(-1)
-                ).reshape(current_batch_size, STRIDE)                     # [B, 128]
-
-                loss = loss_per_token[mask].mean()
+                if use_bitmap:
+                    loss_per_token = criterion(
+                        logits_trimmed.reshape(-1, vocab_size),
+                        targets_trimmed.reshape(-1)
+                    ).reshape(current_batch_size, STRIDE)
+                    loss = loss_per_token[mask].mean()
+                else:
+                    loss = criterion(
+                        logits_trimmed.reshape(-1, vocab_size),
+                        targets_trimmed.reshape(-1)
+                    )
 
             scaler.scale(loss).backward()
             scaler.unscale_(optimizer)
@@ -134,7 +144,7 @@ def train(
             scheduler.step()
 
         if running_steps == 0:
-            print(f"epoch {epoch + 1}: model got everything right, skipping")
+            print(f"epoch {epoch + 1}: no bitmap positions hit, skipping")
             continue
 
         avg_loss       = (total_loss / running_steps).item()
@@ -164,4 +174,6 @@ def train(
     return model
 
 
-train('slice_100mb.txt', epochs=100, size=100)
+bitmap = load_bitmap('slice_100mb.txt.rank3_20.bitmap')
+
+train('slice_100mb.txt',bitmap=bitmap, epochs=100, size=100)
