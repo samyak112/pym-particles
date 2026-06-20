@@ -1,6 +1,8 @@
 import torch
 from tokenizer import get_byte_ids
 from pym_transformer import PymTransformer
+from tqdm import tqdm
+import time
 
 PAD = 256
 BOS = 257
@@ -52,6 +54,97 @@ def generate_windows(
     print(len(windows))
 
     return torch.stack(windows, dim=0)
+
+def load_secondary_windows(path, window_size=256, device='cuda'):
+    import numpy as np
+    data = np.fromfile(path, dtype=np.uint16)          # uint16 to preserve 256/257
+    num_windows = len(data) // window_size
+    arr = torch.from_numpy(data).long()
+    windows = arr.view(num_windows, window_size).to(device)
+    print(len(windows))
+    return windows                                      # shape: (num_windows, 256)
+
+def construct_secondary_dataset(
+    chunk_path,
+    model_path,
+    window_size=256,
+    vocab_size=258,
+    batch_size=64,
+):
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+    token_ids   = get_byte_ids(chunk_path=chunk_path)
+    windows     = generate_windows(token_ids, window_size, device=device)
+    num_windows = len(windows)
+
+    STRIDE           = window_size // 2       # 128
+    target_start_idx = window_size // 2       # predictions start at token 128
+
+    model = PymTransformer(
+        vocab_size=vocab_size,
+        hidden_dim=128,
+        num_layers=2,
+        sequence_length=window_size
+    ).to(device)
+
+    model.load_state_dict(
+        torch.load(model_path, map_location=device, weights_only=True)
+    )
+    model.eval()
+
+    total_positions = num_windows * STRIDE + window_size
+    bitmap = bytearray(total_positions // 8 + 1)
+
+    with torch.no_grad():
+        for batch_start in tqdm(
+            range(0, num_windows, batch_size),
+            desc="Analyzing positions"
+        ):
+            inp_b = windows[batch_start:batch_start + batch_size]
+
+            with torch.autocast(device_type='cuda', dtype=torch.float16):
+                logits, _, _ = model(inp_b)
+
+            # logits for positions [127:-1], targets for positions [128:]
+            logits_trimmed  = logits[:, target_start_idx - 1:-1, :].float()
+            targets_trimmed = inp_b[:, target_start_idx:]
+
+            _, top2_indices = torch.topk(logits_trimmed, k=2, dim=-1)
+
+            rank2_correct_mask = (targets_trimmed == top2_indices[:, :, 1])
+
+            for row_idx, seq_pos in torch.nonzero(rank2_correct_mask, as_tuple=False):
+                global_window_idx = batch_start + row_idx.item()
+
+                # window i covers tokens [i*128 : i*128+256]
+                # predictions cover     [i*128+128 : i*128+256]
+                pos = global_window_idx * STRIDE + target_start_idx + seq_pos.item()
+
+                bitmap[pos >> 3] |= (1 << (pos & 7))
+
+    bitmap_path = chunk_path + '.bitmap'
+    with open(bitmap_path, 'wb') as f:
+        f.write(bitmap)
+    print(f"bitmap saved → {bitmap_path}  ({len(bitmap)} bytes)")
+
+    return bitmap
+
+def load_bitmap(bitmap_path):
+    with open(bitmap_path, 'rb') as f:
+        return bytearray(f.read())
+
+
+
+def count_chars(chunk_size=1024 * 1024):
+    total = 0
+
+    with open('slice_100mb.txt', "r", encoding="utf-8") as f:
+        while chunk := f.read(chunk_size):
+            total += len(chunk)
+
+    print(total)
+
+    return total
 
 def get_entropy_concentration_stats(chunk_path, model_path, window_size=256, vocab_size=258, batch_size=64, top_k=2, output_path='miss_runs.bin', bitmap_path='miss_bitmap.bin'):
     import numpy as np
@@ -291,10 +384,13 @@ if __name__ == '__main__':
     #     print("\nWARNING: The entire input sequence is 0 (possible padding issue).")
 
     # find_redundant_chunks()
-    get_entropy_concentration_stats(chunk_path="slice_100mb.txt",
+    construct_secondary_dataset(chunk_path="slice_100mb.txt",
     model_path="models/pym_particles_enwik_latest.pt",
     window_size=256,
     vocab_size=258,
     batch_size=64)
+
+    # load_secondary_windows('secondary_dataset.bin')
+    # count_chars()
 
 
