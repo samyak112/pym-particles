@@ -33,7 +33,7 @@ if not path:
         chunk_path=INPUT_FILE,
         device=device,
         model_path=MODEL_PATH, 
-        epochs=100,
+        epochs=10,
         lr=5e-3,
         window_size=WINDOW_SIZE,
         vocab_size=VOCAB_SIZE,
@@ -52,14 +52,19 @@ model = PymTransformer(
 model.load_state_dict(torch.load(MODEL_PATH, map_location=device))
 model.eval()
 
-compress(size=SIZE,
-         input_file=INPUT_FILE,
-         compressed_file=COMPRESSED_FILE,
-         seed_path=SEED_FILE,
-         window_size=WINDOW_SIZE,
-         model=model,
-         num_chunks=NUM_CHUNKS
-         )
+
+
+path = Path(COMPRESSED_FILE)
+
+if not path:
+    compress(size=SIZE,
+            input_file=INPUT_FILE,
+            compressed_file=COMPRESSED_FILE,
+            seed_path=SEED_FILE,
+            window_size=WINDOW_SIZE,
+            model=model,
+            num_chunks=NUM_CHUNKS
+            )
 
 decompress(
     model=model,
