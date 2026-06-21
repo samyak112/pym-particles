@@ -258,6 +258,24 @@ These seeds are tiny: ~25KB total overhead for a 100MB file split into 100 chunk
 
 **Inference uses a KV cache**, so generating each new byte only requires computing that one token's keys/values and appending them, instead of recomputing attention over the full context every step.
 
+#### Time Complexity Breakdown
+
+The execution timeline is divided into three distinct phases: training, compression (encoding), and decompression (decoding). The metrics below reflect a standard benchmark run on a **100 MB** input file using a single CUDA-accelerated GPU:
+
+| **Phase**                    | **Duration / Rate**           | **Description**                                                                                  |
+| ---------------------------- | ----------------------------- | ------------------------------------------------------------------------------------------------ |
+| **Training (per Epoch)**     | ~200 seconds                  | The time required to run one complete forward/backward pass over the targeted file slice.        |
+| **Total Convergence**        | 7 – 10 epochs (~23 – 33 mins) | The duration required for the `5e-3 + warmup` schedule to minimize loss and optimize bits/byte.  |
+| **Compression (Parallel)**   | ~45 minutes                   | Batching the 100 parallel chunk streams through the trained model to write the `.pym` bitstream. |
+| **Decompression (Parallel)** | ~45 minutes                   | Autoregressively reconstructing the file from the 100 parallel seed points using the KV cache.   |
+|                              |                               |                                                                                                  |
+
+#### Architectural Trade-offs
+
+- **Extreme Asymmetry:** Total end-to-end processing requires roughly **1.5 to 2 hours** per 100 MB file. The model trades massive CPU/GPU clock cycles for raw byte-level prediction accuracy.
+    
+- **Compute Bounds:** Unlike standard compressors that are I/O bound, `pym-particles` is strictly compute-bound. The 45-minute decompression wall is determined by the serial nature of autoregressive generation, even when split across 100 parallel threads via the seed file.
+
 ## What I tried that didn't work
 
 A short version, full writeups with the reasoning and numbers are in [EXPERIMENTS.md](https://github.com/samyak112/pym-particles/blob/main/docs/experiments.md):
