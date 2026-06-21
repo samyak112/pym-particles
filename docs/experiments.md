@@ -1,6 +1,4 @@
-# EXPERIMENTS.md — pym-particles: The Road Here
-
-This is the lab notebook. The [README](./README.md) describes the model that actually shipped; this doc covers everything that led there — the dead ends, the diagnostics that explained *why* something failed, and a couple of bigger architectural ideas that were reasoned through in depth but never built. Negative results are included on purpose: most of what shaped the final design came from things that didn't work.
+This is the lab notebook. The README.md describes the model that actually shipped; this doc covers everything that led there — the dead ends, the diagnostics that explained *why* something failed, and a couple of bigger architectural ideas that were reasoned through in depth but never built. Negative results are included on purpose: most of what shaped the final design came from things that didn't work.
 
 ---
 
