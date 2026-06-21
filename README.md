@@ -99,7 +99,7 @@ The system's compression performance scales directly with the structural predict
 |**Dataset / File Type**|**Original Size**|**Bits/Byte**|**Compressed Size**|**Compression Ratio**|
 |---|---|---|---|---|
 |**NYC Taxi Trip Data** (CSV)|100 MB|~0.50|7 MB|**14.2x**|
-|**enwik9 dataset** (Text slice)|100 MB|~1.68|21 MB|
+|**enwik9 dataset** (Text slice)|100 MB|~1.68|21 MB|**4.7x**|
 
 
 ### Current Architecture
