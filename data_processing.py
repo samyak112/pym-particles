@@ -1,9 +1,17 @@
 import torch
 from tokenizer import get_byte_ids
 from pym_transformer import PymTransformer
+import numpy as np
+from itertools import groupby
+from tqdm import tqdm  
+import time
+import struct
+from arithmetic_coder import SimpleFrequencyTable
 
 PAD = 256
 BOS = 257
+NUM_CHUNKS = 100
+SCALE = 1_000_000
 
 def generate_windows(
     token_ids: list[int],
@@ -53,12 +61,48 @@ def generate_windows(
 
     return torch.stack(windows, dim=0)
 
+def verify(original_path, reconstructed_path, size):
+
+    bytes = int(size * 1024 * 1024)
+    with open(original_path, 'rb') as f:
+        original = f.read()[:bytes]
+    with open(reconstructed_path, 'rb') as f:
+        reconstructed = f.read()
+
+    if original == reconstructed:
+        print("lossless      : TRUE ✓")
+        print("\nparallel streaming architecture verified.")
+        return True
+    else:
+        for i, (a, b) in enumerate(zip(original, reconstructed)):
+            if a != b:
+                print(f"lossless      : FALSE ✗  first mismatch at byte {i:,}")
+                print(f"  expected {a} got {b}")
+                break
+        return False
+    
+
+def step_model_batched(model, tokens_batch, device, past_kv=None, past_padding=None):
+    inp = torch.tensor(tokens_batch, dtype=torch.long).to(device=device)
+    with torch.no_grad():
+        with torch.autocast(device_type='cuda', dtype=torch.float16):
+            logits, next_kv, next_padding = model(
+                inp,
+                past_key_values=past_kv,
+                past_key_padding_mask=past_padding
+            )
+            probs = torch.softmax(logits[:, -1, :].float(), dim=-1)
+
+    probs_np = probs.cpu().numpy() * SCALE
+    freqs_batch = []
+    for b in range(probs_np.shape[0]):
+        f = probs_np[b].astype(int).clip(1)
+        freqs_batch.append(SimpleFrequencyTable(f.tolist()))
+
+    return freqs_batch, next_kv, next_padding
+
 def get_entropy_concentration_stats(chunk_path, model_path, window_size=256, vocab_size=258, batch_size=64, top_k=2, output_path='miss_runs.bin', bitmap_path='miss_bitmap.bin'):
-    import numpy as np
-    import torch
-    from itertools import groupby
-    from tqdm import tqdm  
-    import time, struct
+    
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
