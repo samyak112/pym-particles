@@ -10,7 +10,6 @@ class CausalSelfAttention(nn.Module):
         self.num_heads = num_heads
         self.head_dim = hidden_dim // num_heads
 
-        # Explicit linear layers for Q, K, V
         self.q_proj = nn.Linear(hidden_dim, hidden_dim)
         self.k_proj = nn.Linear(hidden_dim, hidden_dim)
         self.v_proj = nn.Linear(hidden_dim, hidden_dim)
@@ -19,12 +18,10 @@ class CausalSelfAttention(nn.Module):
     def forward(self, x, causal_mask=None, key_padding_mask=None, layer_past=None):
         B, L_q, D = x.shape
 
-        # Project and reshape to (Batch, Heads, SeqLen, HeadDim)
         q = self.q_proj(x).view(B, L_q, self.num_heads, self.head_dim).transpose(1, 2)
         k = self.k_proj(x).view(B, L_q, self.num_heads, self.head_dim).transpose(1, 2)
         v = self.v_proj(x).view(B, L_q, self.num_heads, self.head_dim).transpose(1, 2)
 
-        # Append to KV cache if provided
         if layer_past is not None:
             past_k, past_v = layer_past
             k = torch.cat([past_k, k], dim=2)
@@ -33,29 +30,18 @@ class CausalSelfAttention(nn.Module):
         # Save current state for the next generation step
         current_layer_past = (k, v)
 
-        L_k = k.size(2) # Total key length (past + current)
-
-        # Compute QK^T / sqrt(d)
         scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(self.head_dim)
 
-        # Apply causal mask (only needed during prefill when L_q > 1)
         if causal_mask is not None and L_q > 1:
-            # causal_mask shape: (L_q, L_k)
-            # Broadcast to (B, Heads, L_q, L_k)
             scores = scores.masked_fill(causal_mask.unsqueeze(0).unsqueeze(0), float('-inf'))
 
-        # Apply key padding mask
         if key_padding_mask is not None:
-            # key_padding_mask shape: (B, L_k)
-            # Broadcast to (B, 1, 1, L_k)
             scores = scores.masked_fill(key_padding_mask.unsqueeze(1).unsqueeze(2), float('-inf'))
 
         attn_weights = F.softmax(scores, dim=-1)
         
-        # Multiply by V
         out = torch.matmul(attn_weights, v)
         
-        # Reshape back to (Batch, SeqLen, HiddenDim)
         out = out.transpose(1, 2).contiguous().view(B, L_q, D)
 
         return self.o_proj(out), current_layer_past
@@ -66,7 +52,6 @@ class TransformerBlock(nn.Module):
         super().__init__()
         self.ln1 = nn.LayerNorm(hidden_dim)
         
-        # Replaced nn.MultiheadAttention with custom attention
         self.attn = CausalSelfAttention(
             hidden_dim=hidden_dim,
             num_heads=4
@@ -132,25 +117,19 @@ class PymTransformer(nn.Module):
     def forward(self, tokens, pad_token_id=256, past_key_values=None, past_key_padding_mask=None):
         B, seq_len = tokens.shape
 
-        # Calculate offset step based on existing cache
         if past_key_values is not None:
-            # past_key_values[0][0] is the Past Key tensor of layer 0. 
-            # Its shape is (B, Heads, Past_Seq_Len, HeadDim)
             step = past_key_values[0][0].size(2) 
         else:
             step = 0
 
-        # Handle rolling padding mask
         current_padding_mask = (tokens == pad_token_id)
         if past_key_padding_mask is not None:
             current_padding_mask = torch.cat([past_key_padding_mask, current_padding_mask], dim=1)
 
         x = self.embedding(tokens)
         
-        # Apply offset to positional encoding
         x = x + self.pos_enc[step : step + seq_len].unsqueeze(0)
 
-        # Causal mask logic
         if seq_len > 1:
             causal_mask = self.causal_mask[:seq_len, :seq_len]
         else:

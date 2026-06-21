@@ -7,28 +7,22 @@ from pym_transformer import PymTransformer
 import time
 import json
 
-model_name = 'pym_particles.pt'
 log_path = "loss_log.json"
 
-
-
-def train(chunk_path, epochs=20, lr=2e-3, window_size=256,
-          vocab_size=258, batch_size=64):
+def train(chunk_path,model_path,device,size, epochs=20, lr=5e-3, window_size=256,
+          vocab_size=258, batch_size=64,hidden_dims=128,layers=2,):
     
     with open(log_path, "a") as f:
-        f.write(json.dumps({'file_name':chunk_path}) + "\n")
+        f.write(json.dumps({'file_name':chunk_path,'hidden_dims':hidden_dims,'layers':layers, 'lr':lr}) + "\n")
 
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    print(f"device       : {device}")
-
-    token_ids = get_byte_ids(chunk_path=chunk_path)
+    token_ids = get_byte_ids(chunk_path=chunk_path,size_mb=size)
     windows = generate_windows(token_ids, window_size,device=device)
     num_windows = len(windows)
 
     steps_per_epoch = math.ceil(num_windows / batch_size)
     total_steps = epochs * steps_per_epoch
 
-    model     = PymTransformer(vocab_size=vocab_size,hidden_dim=128,num_layers=2,sequence_length=window_size).to(device)
+    model     = PymTransformer(vocab_size=vocab_size,hidden_dim=hidden_dims,num_layers=layers,sequence_length=window_size).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr,fused=True)
     scaler = torch.cuda.amp.GradScaler()
     warmup_steps = 500
@@ -72,27 +66,14 @@ def train(chunk_path, epochs=20, lr=2e-3, window_size=256,
             with torch.autocast(device_type='cuda', dtype=torch.float16):
 
                 logits, _, _ = model(inp_b)
-
-                # 1. Define the index of the token making the first prediction you care about.
-                # The token '4' is at index 3.
                 logit_start_idx = window_size//2 - 1
 
-                # 2. Slice logits: start from the token making the prediction, and drop 
-                # the final sequence step (since the last token has no target to predict).
-                # This gives us the logits at indices [3, 4, 5, 6]
                 logits_trimmed = logits[:, logit_start_idx : -1, :].reshape(-1, vocab_size)
 
-                # 3. Slice targets: the target is always one step ahead of the logit.
-                # This gives us the targets [5, 6, 7, 8] at indices [4, 5, 6, 7]
                 target_start_idx = logit_start_idx + 1
                 targets_trimmed = inp_b[:, target_start_idx:].reshape(-1)
 
-                # print('this is the input logit',logits_trimmed)
-                # print(targets_trimmed)
-
-                # 4. Compute loss
                 loss = criterion(logits_trimmed, targets_trimmed)
-                # print('batch',batch_start/batch_size)
 
             scaler.scale(loss).backward()
 
@@ -131,8 +112,6 @@ def train(chunk_path, epochs=20, lr=2e-3, window_size=256,
 
             best_loss = avg_loss
 
-            model_path = 'models/' + model_name
-
             torch.save(
                 {k: v.half() for k, v in model.state_dict().items()},
                 model_path
@@ -143,4 +122,3 @@ def train(chunk_path, epochs=20, lr=2e-3, window_size=256,
 
     return model
 
-train('slice_100mb.txt', epochs=100)
