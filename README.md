@@ -186,7 +186,7 @@ These seeds are tiny: ~25KB total overhead for a 100MB file split into 100 chunk
 
 ## What I tried that didn't work
 
-A short version, full writeups with the reasoning and numbers are in EXPERIMENTS.md:
+A short version, full writeups with the reasoning and numbers are in [EXPERIMENTS.md](https://github.com/samyak112/pym-particles/blob/main/docs/experiments.md):
 
 - **Mixture of experts** (route "easy" windows to one model, "hard" windows to another) — no gain.
 - **Bitmap-assisted selective masking** (explicitly excluding bytes that "can't" appear next, to sharpen the arithmetic coder's distribution) — failed: exactly where this would help most, the model's concentrated most of the probability distribution in first 2 elements and kept giving lower shares after that so there was no point to reduce the probability distribution.
