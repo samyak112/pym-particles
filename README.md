@@ -19,6 +19,80 @@ On more varied byte-level data (enwik9 data set (sliced to 100mb)), it settles a
 I tried different approaches to compress it more than 1.68 but no approach got me better compression than this.
 
 ---
+
+## Running Locally
+
+The repository is intentionally structured as a single-file workflow.
+
+Place the file you want to compress in the project root and run:
+
+```bash
+python main.py
+```
+
+When prompted, enter the file name:
+
+```text
+my_file.txt
+```
+
+The script will:
+
+1. Train a transformer on that file if no trained model exists.
+2. Compress the file into a `.pym` archive.
+3. Decompress the archive back into a reconstructed file.
+4. Verify that the reconstructed file is byte-identical to the original.
+
+For example, given:
+
+```text
+my_file.txt
+```
+
+The following files will be produced:
+
+```text
+my_file.txt.pym
+my_file.txt.bin
+my_file_reconstructed.txt
+```
+
+Where:
+
+* `*.pym` is the arithmetic-coded compressed stream.
+* `*.bin` stores the seed contexts used for parallel decompression.
+* `*_reconstructed.*` is the recovered file.
+
+The compressor operates directly on raw bytes rather than text tokens, so it can be used on text files, images, archives, executables, audio, video, or any other file format.
+
+The default configuration trains on the first 0.5 MB of the input file:
+
+```python
+SIZE = 0.5
+```
+
+Increasing `SIZE` trains on a larger portion of the file, which generally improves compression at the cost of longer training and compression times.
+
+The main parameters are:
+
+```python
+WINDOW_SIZE = 256
+STRIDE = 128
+HIDDEN_DIMS = 128
+LAYERS = 2
+BATCH_SIZE = 64
+NUM_CHUNKS = 100
+```
+
+A CUDA GPU is strongly recommended. The code will automatically fall back to CPU if CUDA is unavailable, but training and compression will be significantly slower.
+For AMD users try
+
+```
+HSA_OVERRIDE_GFX_VERSION=11.0.0 python3 main.py 
+```
+---
+
+
 ### Current Architecture
 
 **Tokenization -** The file is read as raw bytes no text tokenization, no subwords. Each byte (0–255) is one token, plus two special tokens (`PAD`, `BOS`), for a vocabulary of 258. This makes the system completely format-agnostic: a CSV, an executable, an image all just byte sequences to it.
