@@ -20,6 +20,12 @@ I tried different approaches to compress it more than 1.68 but no approach got m
 
 ---
 
+### Demo
+
+<video src="https://github.com/user-attachments/assets/b1d6094b-8f2f-4e7f-98aa-2ee9d85cf548" controls width="800">Demo Video</video>
+
+---
+
 ## Running Locally
 
 The repository is intentionally structured as a single-file workflow.
