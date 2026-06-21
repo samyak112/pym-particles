@@ -7,8 +7,6 @@ import os
 import io
 import struct
 
-
-
 def split_sizes(total, n):
     """Divide `total` windows into `n` groups as evenly as possible."""
     base = total // n
@@ -63,12 +61,10 @@ def compress(size, input_file, compressed_file, seed_path, window_size, model,nu
     encoders = [ArithmeticEncoder(32, b) for b in bitouts]
 
     with torch.no_grad():
-        # Iterate window by window, keeping all chunks perfectly parallel
         for w_idx in tqdm(range(max_windows), desc="compress", unit="window"):
             contexts = []
             targets_matrix = []
 
-            # 1. Setup the exact same contexts the decompressor will see
             for i in range(num_chunks):
                 if w_idx < sizes_w[i]:
                     win = windows[bounds[i] + w_idx].tolist()
@@ -79,17 +75,14 @@ def compress(size, input_file, compressed_file, seed_path, window_size, model,nu
                     contexts.append([0] * half_window)
                     targets_matrix.append([0] * half_window)
 
-            # Step A: Prefill to reset KV cache (Matches Decompressor)
             freqs_batch, past_kv, past_padding = step_model_batched(model, contexts, device)
 
-            # Step B: Autoregressively step through the targets
             for step in range(half_window):
                 current_tokens = []
 
                 for i in range(num_chunks):
                     target_token = targets_matrix[i][step]
 
-                    # Write ground truth to stream IF chunk is active
                     if w_idx < sizes_w[i]:
                         encoders[i].write(freqs_batch[i], int(target_token))
 

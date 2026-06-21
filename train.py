@@ -66,27 +66,14 @@ def train(chunk_path,model_path,device,size, epochs=20, lr=5e-3, window_size=256
             with torch.autocast(device_type='cuda', dtype=torch.float16):
 
                 logits, _, _ = model(inp_b)
-
-                # 1. Define the index of the token making the first prediction you care about.
-                # The token '4' is at index 3.
                 logit_start_idx = window_size//2 - 1
 
-                # 2. Slice logits: start from the token making the prediction, and drop 
-                # the final sequence step (since the last token has no target to predict).
-                # This gives us the logits at indices [3, 4, 5, 6]
                 logits_trimmed = logits[:, logit_start_idx : -1, :].reshape(-1, vocab_size)
 
-                # 3. Slice targets: the target is always one step ahead of the logit.
-                # This gives us the targets [5, 6, 7, 8] at indices [4, 5, 6, 7]
                 target_start_idx = logit_start_idx + 1
                 targets_trimmed = inp_b[:, target_start_idx:].reshape(-1)
 
-                # print('this is the input logit',logits_trimmed)
-                # print(targets_trimmed)
-
-                # 4. Compute loss
                 loss = criterion(logits_trimmed, targets_trimmed)
-                # print('batch',batch_start/batch_size)
 
             scaler.scale(loss).backward()
 

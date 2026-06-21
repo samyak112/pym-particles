@@ -101,6 +101,8 @@ def step_model_batched(model, tokens_batch, device, past_kv=None, past_padding=N
 
     return freqs_batch, next_kv, next_padding
 
+
+# yep fully AI generated function, its purpose was only to get me some stats
 def get_entropy_concentration_stats(chunk_path, model_path, window_size=256, vocab_size=258, batch_size=64, top_k=2, output_path='miss_runs.bin', bitmap_path='miss_bitmap.bin'):
     
 
@@ -298,43 +300,7 @@ def get_entropy_concentration_stats(chunk_path, model_path, window_size=256, voc
 
     return delta_values
 
-def find_redundant_chunks():
-    test = {}
-
-    print('test')
-
-    with open("test.txt", "rb") as f:
-        while chunk := f.read(128):
-            # process chunk
-            if chunk in test:
-                test[chunk] += 1
-            else:
-                test[chunk] = 1
-
-    y = 0
-
-    print(len(test))
-
-    for key,value in test.items():
-        if(value > 1):
-            print(value)
-
-
 if __name__ == '__main__':
-    # # custom_mask = generate_custom_mask(8, 8)
-    # import torch
-
-    # data = torch.load('corrupted_batch_item_11.pt') # Replace X with the actual number
-
-    # inputs = data['input_ids']
-    # print("--- RAW INPUT IDS ---")
-    # print(inputs.tolist())
-
-    # # Check for obvious input errors
-    # if (inputs == 0).all():
-    #     print("\nWARNING: The entire input sequence is 0 (possible padding issue).")
-
-    # find_redundant_chunks()
     get_entropy_concentration_stats(chunk_path="slice_100mb.txt",
     model_path="models/pym_particles_enwik_latest.pt",
     window_size=256,
