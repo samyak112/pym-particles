@@ -18,18 +18,19 @@ SCALE = 1_000_000
 
 SIZE = 0.5
 
-txt_file = next(Path(".").glob("*.txt"), None)
+input_path = input("Enter file path: ").strip()
 
-if txt_file is None:
+INPUT_FILE = Path(input_path)
+
+if not INPUT_FILE.exists():
     print("No .txt file found")
 
 else:
-    INPUT_FILE = txt_file
+    
+    INPUT_FILE = str(INPUT_FILE)
     COMPRESSED_FILE = f"{INPUT_FILE}.pym"
     RECONSTRUCTED = f"{INPUT_FILE}_reconstructed.txt"
     SEED_FILE       = f'{INPUT_FILE}.bin'
-
-    print('Found',txt_file)
 
     path = Path(MODEL_PATH)
 
