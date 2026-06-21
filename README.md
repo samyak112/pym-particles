@@ -102,10 +102,10 @@ HSA_OVERRIDE_GFX_VERSION=11.0.0 python3 main.py
 
 The system's compression performance scales directly with the structural predictability (entropy) of the target file. Highly structured data allows the model's loss to approach zero, while complex natural language hits a semantic bottleneck.
 
-|**Dataset / File Type**|**Original Size**|**Bits/Byte**|**Compressed Size**|**Compression Ratio**|**Zip Compression**|
-|---|---|---|---|---|
-|**NYC Taxi Trip Data** (CSV)|100 MB|~0.50|7 MB|**14.2x**|**27 MB**|
-|**enwik9 dataset** (Text slice)|100 MB|~1.68|21 MB|**4.7x**|**38 MB**|
+| Dataset / File Type           | Original Size | Bits/Byte | Compressed Size | Compression Ratio | Zip Compression |
+|------------------------------|--------------:|----------:|----------------:|------------------:|----------------:|
+| NYC Taxi Trip Data (CSV)     | 100 MB        | ~0.50     | 7 MB            | 14.2x             | 27 MB           |
+| enwik9 dataset (Text slice)  | 100 MB        | ~1.68     | 21 MB           | 4.7x              | 38 MB           |
 
 
 ### Current Architecture
