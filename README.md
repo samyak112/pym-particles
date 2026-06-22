@@ -22,7 +22,7 @@ I tried different approaches to compress it more than 1.68 but no approach got m
 
 ### Demo
 
-<video src="https://github.com/user-attachments/assets/b1d6094b-8f2f-4e7f-98aa-2ee9d85cf548" controls width="800">Demo Video</video>
+<video src="https://github.com/user-attachments/assets/e5880235-d669-42f0-9718-eb0de64da6c1" controls width="800">Demo Video</video>
 
 ---
 
