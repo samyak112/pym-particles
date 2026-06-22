@@ -275,7 +275,7 @@ These seeds are tiny: ~25KB total overhead for a 100MB file split into 100 chunk
 
 #### Time Complexity Breakdown
 
-The execution timeline is divided into three distinct phases: training, compression (encoding), and decompression (decoding). The metrics below reflect a standard benchmark run on a **100 MB** input file using a single CUDA-accelerated GPU:
+The execution timeline is divided into three distinct phases: training, compression (encoding), and decompression (decoding). The metrics below reflect a standard benchmark run on a **100 MB** input file using a single AMD based GPU:
 
 | **Phase**                    | **Duration / Rate**           | **Description**                                                                                  |
 | ---------------------------- | ----------------------------- | ------------------------------------------------------------------------------------------------ |
