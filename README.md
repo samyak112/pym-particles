@@ -10,6 +10,8 @@ The neural network does not perform compression directly. Its job is to predict 
 
 The project exists just to tinker and understand how much can i compress a file using a neural network.
 
+(I know neural compression already existed and people have tried experiments like these already)
+
 On a 100MB CSV file (NYC taxi trip data), it reaches **~0.5 bits/byte**, (compressing it to 7MB) .
 
 On more varied byte-level data (enwik9 data set (sliced to 100mb)), it settles around **1.68–1.70 bits/byte** (compressing it to around 21mb). 
