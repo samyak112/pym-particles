@@ -2,7 +2,7 @@
 
 PymParticles is an experimental neural compression system that combines an overfitted transformer with arithmetic coding to compress individual files.
 
-In PymParticles I tried a bit different approach: Overfit a neural network specifically on a file and expect model to find specific patterns because we are overfitting the model on the file and then auto regressively print the file byte by byte.
+In PymParticles I overfit a neural network specifically on a file and expect model to find specific patterns because we are overfitting the model on the file and then auto regressively print the file byte by byte.
 
 Unlike most machine learning systems, overfitting is not a failure mode here. The goal is to memorize a specific file as aggressively as possible. Things you'd normally add to help a model generalize like dropout, weight decay,  actively causes issues here, because they're fighting the thing the whole system is trying to do. 
 
