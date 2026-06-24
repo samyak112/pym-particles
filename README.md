@@ -279,8 +279,8 @@ The execution timeline is divided into three distinct phases: training, compress
 
 | **Phase**                    | **Duration / Rate**           | **Description**                                                                                  |
 | ---------------------------- | ----------------------------- | ------------------------------------------------------------------------------------------------ |
-| **Training (per Epoch)**     | ~180 seconds on AMD and 90 seconds on CUDA                   | The time required to run one complete forward/backward pass over the targeted file slice.        |
-| **Total Convergence**        | 7 – 10 epochs (~23 – 33 mins) | The duration required for the `5e-3 + warmup` schedule to minimize loss and optimize bits/byte.  |
+| **Training (per Epoch)**     | ~180 seconds on AMD and 90 seconds on CUDA (Flash Attention)                   | The time required to run one complete forward/backward pass over the targeted file slice.        |
+| **Total Convergence**        | 7 – 10 epochs (~23 – 33 mins) on AMD and 10-15 mins on CUDA | The duration required for the `5e-3 + warmup` schedule to minimize loss and optimize bits/byte.  |
 | **Compression (Parallel)**   | ~45 minutes                   | Batching the 100 parallel chunk streams through the trained model to write the `.pym` bitstream. |
 | **Decompression (Parallel)** | ~45 minutes                   | Autoregressively reconstructing the file from the 100 parallel seed points using the KV cache.   |
 |                              |                               |                                                                                                  |
