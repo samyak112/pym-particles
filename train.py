@@ -64,7 +64,7 @@ def train(chunk_path,model_path,device,size, epochs=20, lr=5e-3, window_size=256
             inp_b = shuffled_windows[batch_start : batch_start + batch_size]
             optimizer.zero_grad(set_to_none=True)
 
-            with torch.autocast(device_type='cuda', dtype=torch.float16):
+            with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
 
                 logits, _, _ = model(inp_b)
                 logit_start_idx = window_size//2 - 1
