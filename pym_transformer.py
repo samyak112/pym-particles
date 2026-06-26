@@ -30,17 +30,11 @@ class CausalSelfAttention(nn.Module):
         # Save current state for the next generation step
         current_layer_past = (k, v)
 
-        scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(self.head_dim)
-
-        if causal_mask is not None and L_q > 1:
-            scores = scores.masked_fill(causal_mask.unsqueeze(0).unsqueeze(0), float('-inf'))
-
-        if key_padding_mask is not None:
-            scores = scores.masked_fill(key_padding_mask.unsqueeze(1).unsqueeze(2), float('-inf'))
-
-        attn_weights = F.softmax(scores, dim=-1)
-        
-        out = torch.matmul(attn_weights, v)
+        out = F.scaled_dot_product_attention(
+            q, k, v,
+            attn_mask=causal_mask,
+            is_causal=(causal_mask is None)
+        )
         
         out = out.transpose(1, 2).contiguous().view(B, L_q, D)
 

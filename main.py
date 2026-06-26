@@ -16,7 +16,7 @@ LAYERS = 2
 NUM_CHUNKS = 100
 SCALE = 1_000_000
 
-SIZE = 0.5
+SIZE = None
 
 input_path = input("Enter file path: ").strip()
 
@@ -58,6 +58,8 @@ else:
             num_layers=LAYERS,
             sequence_length=WINDOW_SIZE
         ).to(device)
+    
+    model = torch.compile(model)
 
     model.load_state_dict(torch.load(MODEL_PATH, map_location=device))
     model.eval()

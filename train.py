@@ -23,6 +23,7 @@ def train(chunk_path,model_path,device,size, epochs=20, lr=5e-3, window_size=256
     total_steps = epochs * steps_per_epoch
 
     model     = PymTransformer(vocab_size=vocab_size,hidden_dim=hidden_dims,num_layers=layers,sequence_length=window_size).to(device)
+    model = torch.compile(model)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr,fused=True)
     scaler = torch.cuda.amp.GradScaler()
     warmup_steps = 500
