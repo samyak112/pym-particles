@@ -10,7 +10,31 @@ The neural network does not perform compression directly. Its job is to predict 
 
 The project exists just to tinker and understand how much can i compress a file using a neural network.
 
-(I know neural compression already existed and people have tried experiments like these already)
+Neural compression is an active research area, and systems that combine neural networks with entropy coding have been explored previously. PymParticles is not intended as a new compression algorithm, but rather an experimental implementation investigating how far an overfitted transformer can compress a single file through next-byte prediction and arithmetic coding.
+
+The most relevant papers to cite are:
+
+DeepZip: Lossless Data Compression using Recurrent Neural Networks
+
+```bibtex
+
+@inproceedings{7fcb664b03ac4d6497048954d756b91f,
+title = "DeepZip: Lossless Data Compression Using Recurrent Neural Networks",
+author = "Mohit Goyal and Kedar Tatwawadi and Shubham Chandak and Idoia Ochoa",
+year = "2019",
+month = "5",
+day = "10",
+doi = "10.1109/DCC.2019.00087",
+language = "English (US)",
+series = "Data Compression Conference Proceedings",
+publisher = "Institute of Electrical and Electronics Engineers Inc.",
+editor = "Ali Bilgin and Storer, {James A.} and Marcellin, {Michael W.} and Joan Serra-Sagrista",
+booktitle = "Proceedings - DCC 2019",
+address = "United States",
+
+}
+
+```
 
 On a 100MB CSV file (NYC taxi trip data), it reaches **~0.5 bits/byte**, (compressing it to 7MB) .
 
