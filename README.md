@@ -71,7 +71,7 @@ Where:
 
 The compressor operates directly on raw bytes rather than text tokens, so it can be used on text files, images, archives, executables, audio, video, or any other file format.
 
-The default configuration trains on the first 0.5 MB of the input file:
+The default configuration trains on the first 0.5 MB of the input file (for fast tests) If you want to test the whole thing change this to `None`:
 
 ```python
 SIZE = 0.5
@@ -300,6 +300,6 @@ A short version, full writeups with the reasoning and numbers are in [EXPERIMENT
 - **Mixture of experts** (route "easy" windows to one model, "hard" windows to another) — no gain.
 - **Bitmap-assisted selective masking** (explicitly excluding bytes that "can't" appear next, to sharpen the arithmetic coder's distribution) — failed: exactly where this would help most, the model's concentrated most of the probability distribution in first 2 elements and kept giving lower shares after that so there was no point to reduce the probability distribution.
 - **Random shuffling of training windows** — no real benefit; the idea was to check if some chunks learn better when closer to relatively similar chunks, I didnt worked on this idea because it was asking for computationally a lot of similarity work, but I tried a simple idea of randomizing the order of the sequences hoping that the over fitting will be affected either positively or negatively but there was a neutral effect, model didnt cared what was before and just made patterns with what it recieved. If anything it converged slightly slower.
-- **Slicing the file into smaller independent chunks**, hoping compression would scale down proportionally — it didn't; each chunk still landed around the same ~0.5 bits/byte.
+- **Slicing the file into smaller independent chunks**, hoping compression would scale down proportionally — it didn't; each chunk still landed around the same ~ bits/byte.
 - **Dropout / weight decay** — directly counterproductive, as expected; the model got worse at memorizing and got stuck around 3.27 bits/byte.
 - **Dropping the LR warmup** — catastrophic; bits/byte shot up to ~100 and stayed there.
