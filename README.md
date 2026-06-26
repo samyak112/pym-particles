@@ -12,7 +12,7 @@ The project exists just to tinker and understand how much can i compress a file 
 
 Neural compression is an active research area, and systems that combine neural networks with entropy coding have been explored previously. PymParticles is not intended as a new compression algorithm, but rather an experimental implementation investigating how far an overfitted transformer can compress a single file through next-byte prediction and arithmetic coding.
 
-The most relevant papers to cite are:
+The most relevant repo to cite is:
 
 DeepZip: Lossless Data Compression using Recurrent Neural Networks
 
