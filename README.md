@@ -93,6 +93,8 @@ Where:
 * `*.bin` stores the seed contexts used for parallel decompression.
 * `*_reconstructed.*` is the recovered file.
 
+**NOTE** - For CUDA users I have specifically made a branch called `cuda_version` please use that because it has CUDA based optimzations like using flash attention and using fused kernels through torch.compile
+
 The compressor operates directly on raw bytes rather than text tokens, so it can be used on text files, images, archives, executables, audio, video, or any other file format.
 
 The default configuration trains on the first 0.5 MB of the input file (for fast tests) If you want to test the whole thing change this to `None`:
