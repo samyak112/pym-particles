@@ -274,3 +274,23 @@ In the project's own framing at the time: the model isn't failing because it's c
 This is the real reason the masking and mixture-of-experts experiments in Part 3 both came up empty: they were both attempts to extract more value from a probability distribution whose shape is already a fairly accurate reflection of genuine ambiguity, not of fixable slack.
 
 ---
+
+### Query tokens
+
+This was an attempt to increase the speed of inference, the idea was to somehow run the inference also in parallel for all tokens like we do in training, so the idea was that during training instead of letting model train on the loss of real tokens after the 128 prefill i train it on 256 new tokens that I will make, so during training it will work like this 
+
+if the original sequence is 
+
+[1,2,3,4,5,6,7,8]
+
+then 
+
+1,2,3,4 becomes prefill context and then instead of showing model 5,6,7,8 at once in training , i change it with T1, T2, T3, T4
+
+and then during training model sees something like this, while predicting T4
+
+1,2,3,4,T1,T2,T3
+
+so when T3 tries to predict it sees the prefill and the T tokens which are arranged in a specific way using prefill premutation and then predict a token and then in target i show the correct token not T4
+
+But it failed, the compression ratio declined a lot went from 1.5 to 5.3 for 1 mb file
