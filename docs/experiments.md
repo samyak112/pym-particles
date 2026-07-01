@@ -161,12 +161,6 @@ The hard windows turned out to be dominated by high-precision GPS coordinates (1
 
 **Result: no gain at all.** The hypothesis was that Model 1, freed from the gradient noise of unlearnable GPS digits, would converge faster and lower on the patterns it *could* learn, while Model 2 would specialize on the hard regions. In practice, Model 2 struggled to push the hard windows below ~0.7 bits/byte regardless of how it was trained — suggesting those windows are fundamentally information-dense rather than just undertrained, which routing a separate model at them doesn't fix.
 
-### Sidelined: on-the-fly "hard examples" overfit model
-
-A related variant of the same instinct, attempted separately: rather than a permanent second model, dynamically overfit a fresh, small (~900KB) transformer *specifically* on whichever windows the main model was getting most wrong for the *current* file, on the fly. The premise was almost like a targeted patch — exploit the fact that gradient descent might be a cheaper way to store a specific file's hard regions than the arithmetic coder is. Rough math on one file: a 7MB residual stream from the main model alone dropped to ~2MB with the patch model added, but the patch model itself cost 900KB on disk — net savings on that file (8MB → 4MB).
-
-While building the dataset of "hard examples" to train this patch model on (filtered by windows where the model's rank-2 prediction was a hit), the filtering condition turned out to be far too loose — it ended up capturing **99.8% of all windows in the file**, i.e. it wasn't filtering for "hard" examples at all, just nearly everything. This bug meant the hard-examples dataset never actually isolated the difficult regions it was supposed to, and the idea was sidelined before a clean version was retested.
-
 ### Failed: random shuffling of training windows
 
 Hypothesis: maybe the model would learn better if similar-looking chunks were grouped together as prefill context, rather than windows appearing in raw file order.
