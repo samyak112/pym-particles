@@ -2,22 +2,15 @@
 
 PymParticles is an experimental neural compression system that combines an overfitted transformer with arithmetic coding to compress individual files.
 
-In PymParticles I overfit a neural network specifically on a file and expect model to find specific patterns because we are overfitting the model on the file and then auto regressively print the file byte by byte.
+The core idea: a transformer is trained to overfit on a single target file, predicting the next byte as accurately as possible. The more confident the model is in the next byte, the more compression an arithmetic coder can squeeze out of that prediction. The network never compresses anything directly, it just predicts; the arithmetic coder turns those predictions into a compressed bitstream.
 
-Unlike most machine learning systems, overfitting is not a failure mode here. The goal is to memorize a specific file as aggressively as possible. Things you'd normally add to help a model generalize like dropout, weight decay,  actively causes issues here, because they're fighting the thing the whole system is trying to do. 
+Unlike most ML systems, overfitting is not a failure mode here, it's the entire goal. Things you'd normally add to help a model generalize (dropout, weight decay) actively hurt this system, since they fight the thing it's trying to do.
 
-The neural network does not perform compression directly. Its job is to predict the next byte as accurately as possible ( The more confident the model is in the next token the more compression we can squeeze) . The arithmetic coder converts those predictions into a compressed bitstream. 
+This project exists to explore how far a neural network can compress a single file. It's not intended as a new compression algorithm, systems combining neural prediction with entropy coding have been explored before, most notably DeepZip.
 
-The project exists just to tinker and understand how much can i compress a file using a neural network.
-
-Neural compression is an active research area, and systems that combine neural networks with entropy coding have been explored previously. PymParticles is not intended as a new compression algorithm, but rather an experimental implementation investigating how far an overfitted transformer can compress a single file through next-byte prediction and arithmetic coding.
-
-The most relevant repo to cite is:
-
-DeepZip: Lossless Data Compression using Recurrent Neural Networks
+**Full writeup on how and why this works: [ARCHITECTURE.md](https://github.com/samyak112/pym-particles/blob/main/docs/architecture.md)**
 
 ```bibtex
-
 @inproceedings{7fcb664b03ac4d6497048954d756b91f,
 title = "DeepZip: Lossless Data Compression Using Recurrent Neural Networks",
 author = "Mohit Goyal and Kedar Tatwawadi and Shubham Chandak and Idoia Ochoa",
@@ -31,24 +24,25 @@ publisher = "Institute of Electrical and Electronics Engineers Inc.",
 editor = "Ali Bilgin and Storer, {James A.} and Marcellin, {Michael W.} and Joan Serra-Sagrista",
 booktitle = "Proceedings - DCC 2019",
 address = "United States",
-
 }
-
 ```
 
-On a 100MB CSV file (NYC taxi trip data), it reaches **~0.5 bits/byte**, (compressing it to 7MB) .
-
-On more varied byte-level data (enwik9 data set (sliced to 100mb)), it settles around **1.68–1.70 bits/byte** (compressing it to around 21mb). 
-
-I tried different approaches to compress it more than 1.68 but no approach got me better compression than this.
-
----
-
-### Demo
+## Demo
 
 <video src="https://github.com/user-attachments/assets/2cd077f6-5a50-4f75-adad-1e1877884d94" controls width="800">Demo Video</video>
 
----
+## Benchmark Results
+
+Compression performance scales directly with the structural predictability (entropy) of the target file. Highly structured data lets the model's loss approach zero; complex natural language hits a semantic bottleneck.
+
+| Dataset / File Type | Original Size | Bits/Byte | Compressed Size | Compression Ratio | zip |
+|---|---|---|---|---|---|
+| NYC Taxi Trip Data (CSV) | 100 MB | ~0.50 | 7 MB | 14.2x | 27 MB |
+| enwik9 dataset (text slice) | 100 MB | ~1.68 | 21 MB | 4.7x | 38 MB |
+
+You can download the dataset used for these benchmarks [here](https://drive.google.com/drive/folders/1P9hoPcViT2HxP7Zk5UzrSV79wiKQp44U?usp=sharing).
+
+For a list of things that I tried and didn't worked (MoE routing, bitmap masking, window shuffling, chunk slicing), see **[EXPERIMENTS.md](https://github.com/samyak112/pym-particles/blob/main/docs/experiments.md)**.
 
 ## Running Locally
 
@@ -56,13 +50,13 @@ The repository is intentionally structured as a single-file workflow.
 
 Place the file you want to compress in the project root and run:
 
-```bash
+```
 python main.py
 ```
 
 When prompted, enter the file name:
 
-```text
+```
 my_file.txt
 ```
 
@@ -73,258 +67,39 @@ The script will:
 3. Decompress the archive back into a reconstructed file.
 4. Verify that the reconstructed file is byte-identical to the original.
 
-For example, given:
+For example, given `my_file.txt`, the following files will be produced:
 
-```text
-my_file.txt
+- `my_file.txt.pym` — the arithmetic-coded compressed stream
+- `my_file.txt.bin` — the seed contexts used for parallel decompression
+- `my_file_reconstructed.txt` — the recovered file
+
+**NOTE — CUDA users:** use the `cuda_version` branch. It includes CUDA-specific optimizations like flash attention and fused kernels via `torch.compile`.
+
+The compressor operates directly on raw bytes rather than text tokens, so it works on text files, images, archives, executables, audio, video, or any other file format.
+
+### Config
+
+The default configuration trains on the first 0.5 MB of the input file (for fast tests):
+
 ```
-
-The following files will be produced:
-
-```text
-my_file.txt.pym
-my_file.txt.bin
-my_file_reconstructed.txt
-```
-
-Where:
-
-* `*.pym` is the arithmetic-coded compressed stream.
-* `*.bin` stores the seed contexts used for parallel decompression.
-* `*_reconstructed.*` is the recovered file.
-
-**NOTE** - For CUDA users I have specifically made a branch called `cuda_version` please use that because it has CUDA based optimzations like using flash attention and using fused kernels through torch.compile
-
-The compressor operates directly on raw bytes rather than text tokens, so it can be used on text files, images, archives, executables, audio, video, or any other file format.
-
-The default configuration trains on the first 0.5 MB of the input file (for fast tests) If you want to test the whole thing change this to `None`:
-
-```python
 SIZE = 0.5
 ```
 
-Increasing `SIZE` trains on a larger portion of the file, which generally improves compression at the cost of longer training and compression times.
+Set `SIZE = None` to train on the whole file. Increasing `SIZE` generally improves compression at the cost of longer training and compression times.
 
-The main parameters are:
+| Param | Default |
+|---|---|
+| `WINDOW_SIZE` | 256 |
+| `STRIDE` | 128 |
+| `HIDDEN_DIMS` | 128 |
+| `LAYERS` | 2 |
+| `BATCH_SIZE` | 64 |
+| `NUM_CHUNKS` | 100 |
 
-```python
-WINDOW_SIZE = 256
-STRIDE = 128
-HIDDEN_DIMS = 128
-LAYERS = 2
-BATCH_SIZE = 64
-NUM_CHUNKS = 100
-```
+A CUDA GPU is strongly recommended. The code falls back to CPU automatically if CUDA is unavailable, but training and compression will be significantly slower.
 
-A CUDA GPU is strongly recommended. The code will automatically fall back to CPU if CUDA is unavailable, but training and compression will be significantly slower.
-For AMD users try
-
-```
-HSA_OVERRIDE_GFX_VERSION=11.0.0 python3 main.py 
-```
----
-
-### Benchmark Results
-
-The system's compression performance scales directly with the structural predictability (entropy) of the target file. Highly structured data allows the model's loss to approach zero, while complex natural language hits a semantic bottleneck.
-
-You can download the dataset from [here](https://drive.google.com/drive/folders/1P9hoPcViT2HxP7Zk5UzrSV79wiKQp44U?usp=sharing)
-
-| Dataset / File Type           | Original Size | Bits/Byte | Compressed Size | Compression Ratio | Zip Compression |
-|------------------------------|--------------:|----------:|----------------:|------------------:|----------------:|
-| NYC Taxi Trip Data (CSV)     | 100 MB        | ~0.50     | 7 MB            | 14.2x             | 27 MB           |
-| enwik9 dataset (Text slice)  | 100 MB        | ~1.68     | 21 MB           | 4.7x              | 38 MB           |
-
-
-### Current Architecture
-
-**Tokenization -** The file is read as raw bytes no text tokenization, no subwords. Each byte (0–255) is one token, plus two special tokens (`PAD`, `BOS`), for a vocabulary of 258. This makes the system completely format-agnostic: a CSV, an executable, an image all just byte sequences to it.
-
-**The model (`PymTransformer`)** A small transformer:
-
-- 2 layers, hidden dim 128, 4 attention heads
-- Vocabulary: 258
-- Window size: 256 tokens
-- Weight tying between the input embedding and output projection, halves the parameter count on the two largest matrices.
-- Makes up the transformer size **900KB**
-
-**Window Structure** - The model is trained using overlapping windows rather than processing the entire file as one continuous sequence.
+For AMD users:
 
 ```
-Window Size : 256
-Stride      : 128
+HSA_OVERRIDE_GFX_VERSION=11.0.0 python3 main.py
 ```
-
-Example:
-
-```
-Window 0:
-[BOS PAD PAD ... PAD | bytes 0-127]
-
-Window 1:
-[bytes 0-127 | bytes 128-255]
-
-Window 2:
-[bytes 128-255 | bytes 256-383]
-```
-
-The first 128 tokens of every window act as context. The second 128 tokens are the region where loss is computed.
-
-As a result, every byte in the file appears twice:
-
-- once as context for a future prediction
-- once as a prediction target
-
-This design serves two purposes.
-
-**1. Bounded Context Length -** A transformer cannot continuously grow its attention history forever. In a normal autoregressive setup, every new token increases the amount of context the model must attend to. For very large files this eventually becomes impractical because attention cost and KV cache memory grow with sequence length.
-
-Instead of asking the model to remember the entire file, the file is broken into overlapping windows. The model only needs to reason about the most recent 128 bytes of history, regardless of whether the file is 1 KB, 100 MB, or larger.
-
-From the model's perspective, every prediction task becomes:
-
-```
-Given the previous >=128 bytes,
-predict the next byte.
-```
-
-This keeps memory usage fixed and prevents attention from growing without bound.
-
-**2. Guaranteed Historical Context -** A second problem appears at the beginning of a file.
-
-Autoregressive prediction requires previous tokens, but the first byte has no history. The model cannot predict byte 0 using "the previous 128 bytes" because those bytes do not exist.
-
-To solve this, training begins with an artificial prefix:
-
-```
-[BOS PAD PAD PAD ... PAD]
-```
-
-This creates a synthetic 128-token history for the start of the file.
-
-The BOS token marks the beginning of the stream while PAD tokens represent missing historical context. The model quickly learns that this pattern means "start of file".
-
-After the first window, every prediction has access to real data.
-
-For example:
-
-```
-Window 1
-
-Context:
-bytes 0-127
-
-Targets:
-bytes 128-255
-```
-
-When predicting byte 128, the model already sees the true preceding 128 bytes.
-
-When predicting byte 200, the model still sees the true preceding 128 bytes.
-
-This guarantees that every prediction is made with a full context window available.
-
-#### Why The Overlap Matters
-
-Without overlap, adjacent windows would become disconnected.
-
-```
-Window 0:
-bytes 0-255
-
-Window 1:
-bytes 256-511
-```
-
-In this setup, the model would begin predicting byte 256 with no knowledge of bytes 128-255, even though those bytes are part of the true history of the file.
-
-Using a stride of 128 fixes this.
-
-```
-Window 0:
-context -> synthetic prefix
-targets -> bytes 0-127
-
-Window 1:
-context -> bytes 0-127
-targets -> bytes 128-255
-
-Window 2:
-context -> bytes 128-255
-targets -> bytes 256-383
-```
-
-Each prediction region is conditioned on the exact 128 bytes that immediately precede it in the original file.
-
-The overlap therefore acts as a sliding context buffer, allowing the model to perform autoregressive prediction with fixed memory requirements while still preserving the true sequential structure of the file.
-
----
-
-**Training** uses:
-
-```
-Optimizer : Adam
-Precision : FP16
-Gradient Clipping : 1.0
-Scheduler : Warmup + Cosine Decay
-```
-
-One of the most important findings during development was the impact of learning-rate scheduling.
-
-Early experiments used:
-
-```
-1e-4
-```
-
-and required roughly twenty epochs to reach useful compression.
-
-Switching to:
-
-```
-1e-3 + warmup
-```
-
-reduced convergence time dramatically, reaching comparable compression quality in roughly 7 epochs.
-
-Had to keep warm up for initial steps because model was not able to handle such an aggressive learning rate directly.
-
-### Compression using parallel streaming
-
-Rather than compressing the file as one long sequential pass, it's split into `N` independent chunks (100 by default) and all of them are compressed _simultaneously_ as separate arithmetic-coded streams, batched through the model together. 
-
-This is done so that we can start multiple streams of auto regression at once, because otherwise it takes a lot of time to de compress a 100mb file using auto regression, so we split the file in 100 chunks , and make a seed file which stores the initial 128 bytes of all the N chunks, and because our training was done in a way that model gets the first 128 tokens and predicts on the basis of them this was safe to do, because model is used to start prediction from any place, only if it has the preceding 128 token context.
-
-So we save a seed file which contains the 128 token context of 100 splits across the file and start the auto regression from 100 different places in parallel at once and then merge those pieces at the end.
-
-These seeds are tiny: ~25KB total overhead for a 100MB file split into 100 chunks. This is what makes both compression and decompression batchable and parallel, instead of one slow sequential crawl through the entire file.
-
-**Inference uses a KV cache**, so generating each new byte only requires computing that one token's keys/values and appending them, instead of recomputing attention over the full context every step.
-
-#### Time Complexity Breakdown
-
-The execution timeline is divided into three distinct phases: training, compression (encoding), and decompression (decoding). The metrics below reflect a standard benchmark run on a **100 MB** input file using a single AMD based GPU:
-
-| **Phase**                    | **Duration / Rate**           | **Description**                                                                                  |
-| ---------------------------- | ----------------------------- | ------------------------------------------------------------------------------------------------ |
-| **Training (per Epoch)**     | ~180 seconds on AMD and 90 seconds on CUDA (Flash Attention)                   | The time required to run one complete forward/backward pass over the targeted file slice.        |
-| **Total Convergence**        | 7 – 10 epochs (~23 – 33 mins) on AMD and 10-15 mins on CUDA | The duration required for the `5e-3 + warmup` schedule to minimize loss and optimize bits/byte.  |
-| **Compression (Parallel)**   | ~45 minutes                   | Batching the 100 parallel chunk streams through the trained model to write the `.pym` bitstream. |
-| **Decompression (Parallel)** | ~45 minutes                   | Autoregressively reconstructing the file from the 100 parallel seed points using the KV cache.   |
-|                              |                               |                                                                                                  |
-
-#### Architectural Trade-offs
-
-- **Extreme Asymmetry:** Total end-to-end processing requires roughly **1.5 to 2 hours** per 100 MB file. The model trades massive CPU/GPU clock cycles for raw byte-level prediction accuracy.
-    
-- **Compute Bounds:** Unlike standard compressors that are I/O bound, `pym-particles` is strictly compute-bound. The 45-minute decompression wall is determined by the serial nature of autoregressive generation, even when split across 100 parallel threads via the seed file.
-
-## What I tried that didn't work
-
-A short version, full writeups with the reasoning and numbers are in [EXPERIMENTS.md](https://github.com/samyak112/pym-particles/blob/main/docs/experiments.md):
-
-- **Mixture of experts** (route "easy" windows to one model, "hard" windows to another) — no gain.
-- **Bitmap-assisted selective masking** (explicitly excluding bytes that "can't" appear next, to sharpen the arithmetic coder's distribution) — failed: exactly where this would help most, the model's concentrated most of the probability distribution in first 2 elements and kept giving lower shares after that so there was no point to reduce the probability distribution.
-- **Random shuffling of training windows** — no real benefit; the idea was to check if some chunks learn better when closer to relatively similar chunks, I didnt worked on this idea because it was asking for computationally a lot of similarity work, but I tried a simple idea of randomizing the order of the sequences hoping that the over fitting will be affected either positively or negatively but there was a neutral effect, model didnt cared what was before and just made patterns with what it recieved. If anything it converged slightly slower.
-- **Slicing the file into smaller independent chunks**, hoping compression would scale down proportionally — it didn't; each chunk still landed around the same ~ bits/byte.
-- **Dropout / weight decay** — directly counterproductive, as expected; the model got worse at memorizing and got stuck around 3.27 bits/byte.
